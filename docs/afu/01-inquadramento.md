@@ -92,6 +92,7 @@ Un **Project Hub** con il marchio dello studio (white-label) che accompagna la c
 | Diario di cantiere mobile | PWA, foto, registrazione vocale, trascrizione e strutturazione AI, revisione, funzionamento offline | M4 |
 | Engine documentale | PDF del verbale di sopralluogo, PDF della relazione tecnica R.A.I., PDF del riepilogo di approvazione | M5 |
 | Funzioni trasversali | Autenticazione, notifiche email, audit log, ricerca base, impostazioni personali, export dei dati | MT |
+| SaaS self-service e servizi FDS | **Beta:** provisioning dei tenant, piani ed entitlements, quote, back-office, accettazione dei termini. **Lancio v1.0:** registrazione libera, trial, Stripe, fatturazione elettronica SDI, coupon, disdetta | M6 |
 
 ### Fuori perimetro (fasi successive)
 
@@ -105,7 +106,8 @@ Un **Project Hub** con il marchio dello studio (white-label) che accompagna la c
 | Fattore di Luce Diurna medio (FLDm ≥ 2%) | Serve un modello di calcolo illuminotecnico; nella Beta si calcola solo il rapporto geometrico | v1.x |
 | App native iOS/Android | La PWA copre la Beta; da valutare dopo i test sul campo | v1.x |
 | Portale dell'Impresa esecutrice con accesso attivo | Nella Beta l'impresa riceve solo i verbali via email | v1.x |
-| Pagamenti e abbonamenti self-service (billing) | Nella Beta le licenze si gestiscono manualmente | v1.0 |
+| Incasso dei pagamenti durante la Beta | Nella Beta non si incassa; il modello dati degli abbonamenti e gli entitlements invece ci sono già (M6) | v1.0 (M6) |
+| Sito web portfolio per gli studi | Servizio dell'agenzia FDS, non funzione del prodotto (cap. 15) | — |
 | Multilingua dell'interfaccia | Beta solo in italiano; l'architettura deve però essere predisposta (i18n) | v1.x |
 | Integrazione con i portali SUE/SUAP dei Comuni | Portali eterogenei, nessuno standard nazionale | Da valutare |
 | Calendario e pianificazione del cantiere (Gantt) | Non centrale per la Beta | v1.x |

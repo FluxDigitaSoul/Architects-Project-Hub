@@ -141,6 +141,28 @@ Regole **tassative**: il sistema le applica **lato server**, indipendentemente d
 
 - **Enunciato:** ogni operazione dalla coda offline porta un identificativo univoco generato dal client; il server applica ogni identificativo una sola volta. Il client rimuove un elemento dalla coda solo dopo la conferma del server.
 
+### BR-26 — Provisioning atomico del tenant
+
+- **Enunciato:** la creazione di un tenant (self-service o dal back-office) crea in un'unica operazione atomica tenant, membership Owner, branding predefinito, profilo normativo predefinito, abbonamento (trial o piano assegnato) e progetto demo. Se un passo fallisce, non resta nessun dato parziale e l'operazione si può ripetere in modo idempotente.
+- **Errore:** `500 PROVISIONING_FAILED` con id di correlazione; nessun tenant visibile.
+
+### BR-27 — Dati dei trial non convertiti
+
+- **Enunciato:** un tenant in trial scaduto senza abbonamento resta in sola lettura; i suoi dati si cancellano 90 giorni dopo la scadenza, con avvisi all'Owner a 30 e 7 giorni. Un'estensione del trial o l'attivazione di un piano interrompono il conteggio.
+
+### BR-28 — Entitlements centralizzati
+
+- **Enunciato:** ogni verifica di limite o funzione a pagamento passa dal servizio `entitlements`, lato server, sulla base di piano sottoscritto (con la sua versione) + override attivi. Nessun modulo decide da solo cosa è incluso in un piano; l'interfaccia riflette le decisioni del server.
+- **Errore:** `402 PLAN_LIMIT_REACHED` (limite numerico) o `403 FEATURE_NOT_IN_PLAN` (funzione), con il diritto coinvolto e il piano consigliato.
+
+### BR-29 — Limiti non distruttivi
+
+- **Enunciato:** superare un limite di piano, un trial scaduto o un abbonamento non pagato bloccano solo le **nuove creazioni**. Non bloccano mai la consultazione, l'esportazione dei dati, il completamento di operazioni già iniziate (sincronizzazione di un sopralluogo, finalizzazione di un verbale già in revisione) né l'accesso in lettura dei committenti nel periodo di grazia. Nessun dato si cancella per effetto di un downgrade.
+
+### BR-30 — Fonte di verità dei pagamenti
+
+- **Enunciato:** lo stato dell'abbonamento si modifica solo in seguito a eventi del provider di pagamento con firma verificata, elaborati in modo idempotente (id dell'evento), o ad azioni manuali del Platform Admin tracciate nell'audit. Il client non può mai impostare direttamente piano o stato di pagamento.
+
 ### BR-25 — Visibilità per il committente
 
 - **Enunciato:** il committente vede solo: elaborati pubblicati della propria commessa, i pin e i commenti su quegli elaborati, i documenti condivisi in modo esplicito, i dati anagrafici pubblici della commessa. Non vede mai: bozze, note interne, calcoli R.A.I. non condivisi, sopralluoghi non condivisi, dati di altri committenti oltre al nome (es. email e telefono degli altri contatti).

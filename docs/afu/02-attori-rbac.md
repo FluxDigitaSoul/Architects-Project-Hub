@@ -13,11 +13,13 @@
 | ACT-05 | Committente (Cliente) | Esterno | Magic Link della commessa + OTP email per le azioni vincolanti | Solo la propria commessa, solo gli elaborati pubblicati | M |
 | ACT-06 | Impresa esecutrice | Esterno passivo | Nessun accesso nella Beta (riceve email/PDF) | — | M (come destinatario) |
 | ACT-07 | Sistema / Agente AI | Attore tecnico | Credenziali di servizio | Job asincroni (trascrizione, PDF, notifiche) | M |
+| ACT-08 | Visitatore / Prospect | Esterno, non ancora cliente | Nessuna (poi registrazione self-service) | Sito pubblico, strumenti gratuiti, registrazione | M (lancio) |
+| ACT-09 | Provider esterni (Stripe, provider SDI) | Attore tecnico | Webhook firmati | Eventi di pagamento e fatturazione | M (lancio) |
 
 ### ACT-01 — Platform Admin
 
-**Chi è:** personale del fornitore del SaaS.
-**Obiettivi:** attivare gli studi, gestire le licenze, dare supporto, monitorare la piattaforma.
+**Chi è:** personale del fornitore del SaaS (Flux Digital Soul). Comprende l'**operatore commerciale / concierge** che attiva e configura gli studi nel canale assistito (FR-M6-10).
+**Obiettivi:** attivare gli studi, gestire piani, trial e promozioni, svolgere i servizi di configurazione a pagamento, dare supporto, monitorare la piattaforma e le metriche di business (FR-M6-14).
 **Può:**
 - creare, sospendere e riattivare un tenant; impostare il piano di licenza e il numero di posti;
 - vedere metadati aggregati (numero di progetti, spazio occupato, ultimo accesso) per il supporto e la fatturazione;
@@ -82,6 +84,12 @@ Ogni tenant **deve** avere almeno un Owner attivo (`BR-12`).
 **Chi è:** l'impresa che esegue i lavori; destinataria degli ordini di servizio.
 **Nella Beta:** è un'anagrafica collegata alla commessa (ragione sociale, referente, email, PEC). Riceve via email il PDF del verbale. Non ha accesso al sistema.
 **Fase 2:** portale con presa visione tracciata degli ordini di servizio e caricamento delle proprie foto e dichiarazioni.
+
+### ACT-08 — Visitatore / Prospect
+
+Chi arriva dal sito, da un webinar, da un documento con badge o da un contatto diretto. Può usare gli strumenti gratuiti (FR-M6-19) e registrarsi (FR-M6-01): con la registrazione diventa **Studio Owner** di un nuovo tenant in trial.
+
+**Abbonamento e fatturazione:** solo l'**Owner** vede e gestisce piano, pagamenti, fatture e dati fiscali. Architetti e Collaboratori non vedono l'area Fatturazione.
 
 ### ACT-07 — Sistema / Agente AI
 

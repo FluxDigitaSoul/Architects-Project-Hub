@@ -131,6 +131,32 @@ I criteri di accettazione dettagliati si trovano nel capitolo di ciascun modulo 
 | FR-M5-21 | Varianti della relazione | M | BR-06 | AC-FR-M5-20-1 | TC-118 | MS2 |
 | FR-M5-22 | Revisioni della relazione | M | BR-21 | AC-FR-M5-22-1 | TC-119 | MS2 |
 
+### Modulo 6 — SaaS self-service e servizi FDS
+
+**Legenda milestone aggiuntiva:** MS5 = Commercializzazione self-service (cap. 10). Le parti marcate "Beta" nel Modulo 6 si realizzano già nelle milestone precedenti.
+
+| ID | Descrizione | Pri (Beta/Lancio) | BR | AC | TC | MS |
+|----|-------------|-------------------|----|----|----|----|
+| FR-M6-01 | Registrazione self-service | S/M | — | — | TC-160 | MS5 |
+| FR-M6-02 | Provisioning automatico del tenant | M/M | BR-26 | AC-FR-M6-02-1/2 | TC-161 | MS1 |
+| FR-M6-03 | Progetto demo | S/M | — | — | TC-162 | MS5 |
+| FR-M6-04 | Trial | C/M | BR-27, BR-29 | AC-FR-M6-04-1 | TC-163 | MS5 |
+| FR-M6-05 | Piani ed entitlements | M/M | BR-28, BR-29 | AC-FR-M6-05-1/2 | TC-164 | MS1 |
+| FR-M6-06 | Abbonamento Stripe | W/M | BR-30 | AC-FR-M6-06-1 | TC-165 | MS5 |
+| FR-M6-07 | Fatturazione elettronica SDI | W/M | BR-30 | AC-FR-M6-07-1 | TC-166 | MS5 |
+| FR-M6-08 | Cambio piano | W/M | BR-29 | — | TC-167 | MS5 |
+| FR-M6-09 | Consumi e quote | M/M | BR-29 | vedi AC-FR-M0-13-1 | TC-168 | MS1 |
+| FR-M6-10 | Servizi FDS (concierge) | S/M | BR-15 | AC-FR-M6-10-1 | TC-169 | MS3 |
+| FR-M6-11 | Coupon ed early adopter | W/M | BR-30 | — | TC-170 | MS5 |
+| FR-M6-12 | Referral | W/C | — | — | TC-171 | — |
+| FR-M6-13 | Badge "Redatto con" | C/S | BR-28 | AC-FR-M6-13-1 | TC-172 | MS5 |
+| FR-M6-14 | Back-office commerciale | S/M | BR-15 | — | TC-173 | MS1 |
+| FR-M6-15 | Metriche di attivazione | S/M | — | — | TC-174 | MS3 |
+| FR-M6-16 | Disdetta | W/M | BR-13, BR-29 | — | TC-175 | MS5 |
+| FR-M6-17 | Termini e DPA | M/M | — | — | TC-176 | MS1 |
+| FR-M6-18 | Email del ciclo di vita | C/S | — | — | TC-177 | MS5 |
+| FR-M6-19 | Lead magnet | W/C | — | — | TC-178 | — |
+
 ### Funzioni trasversali
 
 | ID | Descrizione | Pri | BR | AC | TC | MS |

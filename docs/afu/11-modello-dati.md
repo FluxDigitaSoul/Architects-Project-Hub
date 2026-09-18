@@ -133,6 +133,27 @@ erDiagram
 | **AuditEvent** | tenantId, occurredAt, actorType, actorId, onBehalfOf, action, objectType, objectId, outcome, ip, userAgent, requestId, details (JSON), prevHash, hash | Append-only |
 | **Job** | tenantId, type (`FILE_PROCESS`/`TRANSCRIBE`/`STRUCTURE`/`PDF`/`EXPORT`/`EMAIL`), status (SM-JOB-AI), attempts, lastError, payloadRef, createdAt, finishedAt | Idempotente per chiave |
 
+### SaaS, piani e fatturazione (Modulo 6)
+
+| Entità | Attributi principali | Vincoli |
+|--------|----------------------|---------|
+| **Plan** | code (`SOLO`/`PRO`/`ENTERPRISE`/`TRIAL`/`BETA_PARTNER`), name, isPublic, sortOrder | code unico |
+| **PlanVersion** | planId, version, entitlements (JSON validato da schema: limiti + feature flag), priceMonthlyCents, priceYearlyCents, currency, stripePriceIds, trialDays, validFrom, retiredAt | Immutabile dopo la pubblicazione (grandfathering) |
+| **Subscription** | tenantId, planVersionId, status (`TRIALING`/`ACTIVE`/`PAST_DUE`/`UNPAID`/`CANCELED`/`PAUSED`), billingInterval, trialEndsAt, currentPeriodEnd, cancelAtPeriodEnd, stripeCustomerId, stripeSubscriptionId, earlyAdopterLock | Un abbonamento corrente per tenant; modificabile solo da eventi verificati o dal Platform Admin (BR-30) |
+| **EntitlementOverride** | tenantId, key, value (JSON), reason, grantedBy, expiresAt | Tracciato nell'audit |
+| **UsageCounter** | tenantId, metric (`SEATS`/`ACTIVE_PROJECTS`/`STORAGE_BYTES`/`AI_MINUTES`), period (mese o `LIFETIME`), value, recalculatedAt | (tenantId, metric, period) unico; ricalcolabile |
+| **BillingProfile** | tenantId, legalName, vatNumber, taxCode, address, sdiCode, pecEmail, invoiceEmail | Obbligatorio prima del primo pagamento |
+| **Invoice** | tenantId, stripeInvoiceId, number, issuedAt, amounts, sdiProvider, sdiStatus (`PENDING`/`SENT`/`DELIVERED`/`REJECTED`), pdfKey | stripeInvoiceId unico (idempotenza) |
+| **BillingEvent** | provider, providerEventId, type, receivedAt, processedAt, payload (JSON), outcome | providerEventId unico (BR-30) |
+| **ServiceOrder** | tenantId, serviceCode (`SETUP_WHITELABEL`/`ONBOARDING`/`MIGRATION`/`REGULATION_PROFILE`/`OTHER`), status, checklist (JSON), dueDate, assignedTo, supportGrantId, amountCents, paidAt | Collegato alla sessione di supporto (FR-MT-14) |
+| **SupportGrant** | tenantId, grantedBy (Owner), scope (`TENANT`/`PROJECT`), projectId, accessLevel (`READ`/`WRITE`), startsAt, expiresAt, revokedAt | Obbligatorio per qualunque accesso operatore ai contenuti (BR-15) |
+| **Coupon / Promotion** | code, stripeCouponId, kind, value, duration, maxRedemptions, expiresAt, campaign | — |
+| **LegalAcceptance** | userId, tenantId, documentType (`TOS`/`DPA`/`PRIVACY`), documentVersion, acceptedAt, ip | Append-only (FR-M6-17) |
+| **ActivationEvent** | tenantId, event, occurredAt, source (UTM) | Metriche (FR-M6-15) |
+| **DemoTemplate** | version, content (riferimento a snapshot/seed), publishedAt | Template del progetto demo (FR-M6-03) |
+
+Inoltre: **Project.isDemo** (bool) — le commesse demo sono escluse da quote e metriche.
+
 ## 11.3 Archiviazione dei file (object storage)
 
 Struttura logica delle chiavi (tutte private, cifrate, con versioning):

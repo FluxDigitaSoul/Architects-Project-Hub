@@ -27,6 +27,7 @@ Ogni NFR è **misurabile** e ha un metodo di verifica. I valori "p95" si misuran
 | NFR-PERF-06 | Trascrizione e strutturazione AI | p95 ≤ 90 s dalla sincronizzazione dell'audio alla bozza pronta, per 5 minuti di audio | Dipende dal fornitore; da monitorare |
 | NFR-PERF-07 | Risposta delle API | p95 ≤ 300 ms per letture, ≤ 800 ms per scritture (escluse elaborazioni asincrone) | Carico nominale |
 | NFR-PERF-08 | Branding senza impatto sulle prestazioni | Applicare i token di colore e caricare il logo non aggiunge più di **50 ms** all'LCP e non richiede build o deploy; CSS del tenant ≤ 5 KB, in cache | Confronto tra tenant con e senza branding |
+| NFR-PERF-10 | Provisioning self-service di un nuovo tenant | ≤ 5 s dal clic su "Attiva" allo studio utilizzabile | Progetto demo compreso (FR-M6-02/03) |
 | NFR-PERF-09 | Peso della PWA di cantiere | Bundle iniziale JS ≤ 300 KB compressi | Budget di build in CI |
 
 ## 8.3 Capacità e scalabilità (SCAL)
@@ -124,5 +125,5 @@ Vedi il dettaglio al cap. 12.
 | ID | Requisito |
 |----|-----------|
 | NFR-BRAND-01 | Nessuna modifica di codice né deploy per aggiungere o cambiare il branding di un tenant |
-| NFR-BRAND-02 | Nessun riferimento visibile alla piattaforma nel portale del committente, nelle email e nei PDF, salvo quanto previsto da `Q-07` |
+| NFR-BRAND-02 | Nessun riferimento visibile alla piattaforma nel portale del committente, nelle email e nei PDF, **tranne** il badge "Redatto con" secondo il piano (FR-M6-13, `Q-07` chiusa) |
 | NFR-BRAND-03 | Branding isolato per tenant: nessun "flash" del brand di default o di un altro tenant al caricamento (il tenant si risolve **prima** del primo paint, dal dominio) |

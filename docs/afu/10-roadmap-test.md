@@ -54,6 +54,15 @@
 | **Preparazione** | Raccolta del corpus TC-AI (registrazioni con consenso di tutti i presenti), revisione della DPIA (cap. 12) prima di usare dati reali |
 | **Criteri di uscita** | KPI-01 ≤ 15 minuti nella mediana; KPI-02 ≤ 20%; **zero perdite di dati** di campo; NFR-AI-01 soddisfatto sul corpus; nessun bug bloccante aperto |
 
+## 10.6-bis Milestone 5 — Commercializzazione self-service (v1.0)
+
+| Voce | Dettaglio |
+|------|-----------|
+| **Requisiti** | FR-M6-01, 03, 04, 06, 07, 08, 11, 13, 16, 18 (le parti "Beta" del Modulo 6 — provisioning, entitlements, quote, back-office, termini — sono già fatte in MS1) |
+| **Deliverable** | Registrazione libera, trial, progetto demo, Stripe Checkout e Customer Portal, fatture elettroniche SDI, coupon early adopter, badge per piano, email di onboarding |
+| **Prerequisiti** | Debriefing della Beta chiuso; listino definitivo (`Q-24`); termini, DPA e informative approvati dal legale; provider SDI scelto (`Q-26`) |
+| **Criteri di uscita** | Un nuovo studio fa da solo registrazione → wizard → trial → pagamento → fattura elettronica ricevuta, senza intervento di FDS; test end-to-end dei webhook Stripe in modalità test; 5 studi early adopter paganti |
+
 ## 10.7 Sessione di debriefing e passaggio alla v1.0
 
 - **Quando:** entro 2 settimane dalla chiusura della MS4.

@@ -8,8 +8,8 @@
 |---------|--------|-------------------------|
 | Frontend | **Angular 20/21**: signals, componenti standalone, change detection zoneless, `@angular/service-worker` per la PWA | V-01; FR-M4-01; NFR-PERF-03/09 |
 | Backend | **NestJS** (TypeScript) su Node.js LTS | V-02; moduli per contesto di dominio |
-| Database | **PostgreSQL** (Amazon RDS for PostgreSQL o Aurora PostgreSQL, Multi-AZ) | V-03; RLS per BR-04; `numeric` per BR-22; JSONB per profili e snapshot |
-| Monorepo | Nx (o workspace equivalente) con librerie condivise | V-05 (motore R.A.I. condiviso), tipi e contratti condivisi |
+| Database | **PostgreSQL gestito su Supabase** (regione UE). Alternativa a regime: Amazon RDS/Aurora PostgreSQL. Il codice resta PostgreSQL standard, senza dipendenze dalle API proprietarie di Supabase, così la migrazione resta possibile | V-03; RLS per BR-04; `numeric` per BR-22; JSONB per profili e snapshot |
+| Monorepo | **Un solo repository** per backend, frontend e librerie condivise, con npm workspaces (ADR-001) | V-05 (motore R.A.I. condiviso), tipi e contratti condivisi |
 | Infrastruttura | **AWS**, regione primaria UE | V-04, V-07 |
 | IaC | AWS CDK in TypeScript (stesso linguaggio del resto) — o Terraform | NFR-MAINT-03 |
 | CI/CD | GitHub Actions con federazione OIDC verso AWS (nessuna chiave statica) | NFR-SEC-11 |
@@ -48,7 +48,7 @@ flowchart TB
     end
 
     subgraph Data
-        PG[(RDS PostgreSQL<br/>Multi-AZ, RLS)]
+        PG[(Supabase PostgreSQL<br/>regione UE, RLS,<br/>schema app non esposto)]
         S3F[(S3 file privati<br/>SSE-KMS, versioning)]
         SQS[[SQS code + DLQ]]
         SM[Secrets Manager / KMS]
@@ -103,7 +103,7 @@ flowchart TB
 
 | Tema | Proposta | Requisiti |
 |------|----------|-----------|
-| Utenti dello studio | **Da decidere in ADR-003:** (a) **Amazon Cognito** user pool (MFA TOTP, policy delle password, protezione dalle credenziali compromesse) con NestJS che valida i JWT; oppure (b) autenticazione interna in NestJS (Argon2id, TOTP, sessioni in DB). Proposta: (a) per ridurre il codice di sicurezza scritto a mano, a condizione di verificare la compatibilità con gli host multi-tenant e gli URL di callback dinamici | FR-MT-01/02 |
+| Utenti dello studio | **Supabase Auth** (proposta di ADR-003, `Q-29`): email/password con verifica, OAuth Google/Microsoft (FR-M6-01), MFA TOTP. NestJS verifica i JWT di Supabase (chiavi JWKS) e ricava l'utente; **tenant e ruolo li decide il database applicativo** (membership), non i claim del token. Alternative scartate per ora: Amazon Cognito, autenticazione interna | FR-MT-01/02, FR-M6-01 |
 | Committenti | **Servizio interno** (non Cognito): token opachi (256 bit, salvati come hash), sessioni con cookie `HttpOnly`, OTP via SES, rate limiting (WAF + applicativo) | FR-M1-05/06, FR-M2-15, BR-03 |
 | Autorizzazione | Guard NestJS per ruolo + policy ABAC (assegnazione, stato della risorsa, autore) centralizzate in un modulo `authz`, **più** RLS nel database | Cap. 2, BR-04 |
 
@@ -162,26 +162,28 @@ flowchart TB
 | Sicurezza perimetrale | AWS WAF (managed rules + rate limiting per IP su login, OTP e token); header di sicurezza impostati da CloudFront (response headers policy) | NFR-SEC-05/12 |
 | Chiavi e secret | KMS (chiavi gestite dal cliente per S3 e RDS), Secrets Manager con rotazione | NFR-SEC-02/11 |
 | Governance | AWS Organizations con account separati per dev, staging e prod; CloudTrail organizzativo; GuardDuty; Security Hub | NFR-SEC-16/17 |
-| Backup | AWS Backup per RDS (PITR 14 giorni) e copie cross-region; S3 versioning + replica cross-region | NFR-AVAIL-02/04 |
+| Backup | Backup gestiti di Supabase + **Point-in-Time Recovery** (add-on, da attivare prima di avere dati reali) + dump logico periodico cifrato su S3 in un'altra regione UE; S3 versioning + replica cross-region | NFR-AVAIL-02/04 |
+| Pagamenti e fatturazione | Stripe Billing (Checkout, Customer Portal, webhook verso `/api/v1/webhooks/stripe`) + provider SDI via API, eseguiti dal worker con code idempotenti | FR-M6-06/07, BR-30 |
+| Entitlements | Modulo NestJS `entitlements` unico: legge la versione del piano e gli override, espone un guard/decorator (es. `@RequiresEntitlement('projects.active.max')`) usato da tutti i moduli | FR-M6-05, BR-28 |
 
 ## 14.4 Struttura del monorepo (proposta)
 
 ```
 apps/
-  studio-web/          Angular — app dello studio (desktop) + rotte /field (PWA cantiere)
-  client-portal/       Angular — portale del committente
-  api/                 NestJS — API REST
-  worker/              NestJS standalone — consumer SQS (file, pdf, ai, jobs)
-libs/
-  rai-engine/          Motore di calcolo R.A.I. (TS puro, condiviso)
-  domain-contracts/    DTO, enum, JSON Schema (profili, output AI), tipi condivisi
-  ui/                  Design system Angular con token white-label
-  i18n/                Testi dell'interfaccia (it-IT)
-  pdf-templates/       Template dei documenti
-infra/                 AWS CDK (stack per ambiente)
+  api/                 NestJS — API REST (+ webhook Stripe)
+  worker/              NestJS standalone — consumer delle code (file, pdf, ai, billing, jobs)   [step successivi]
+  web/                 Angular — app dello studio + rotte /field (PWA cantiere) + portale committente   [dopo il BE]
+packages/
+  rai-engine/          Motore di calcolo R.A.I. (TS puro, condiviso FE/BE)
+  contracts/           DTO, enum, codici d'errore, JSON Schema condivisi
+supabase/
+  migrations/          Migrazioni SQL versionate (schema, RLS, funzioni)
+  seed.sql             Dati iniziali (piani, profili normativi di sistema)
+infra/                 IaC AWS   [step successivi]
 docs/
   afu/                 Questo documento
   architecture/adr/    Architecture Decision Records
+  development/         Roadmap di sviluppo e guide
 ```
 
 **Nota sulla PWA:** si propone di tenere la PWA di cantiere **dentro** l'app dello studio (stessa identità e stesso deploy, service worker attivo solo sulle rotte `/field`). Un'app separata va valutata se il budget del bundle (NFR-PERF-09) non viene rispettato.
@@ -220,3 +222,7 @@ Componenti a costo variabile da tenere sotto controllo (R-09, NFR-AI-05): minuti
 | ADR-008 | Strategia offline e sincronizzazione della PWA | FR-M4-14 |
 | ADR-009 | Viewer deep-zoom e formato dei tile | FR-M2-06 |
 | ADR-010 | Libreria di aritmetica decimale e contratto del motore R.A.I. | BR-22 |
+| ADR-011 | Motore entitlements e modello piani/abbonamenti | FR-M6-05, BR-28 |
+| ADR-012 | Integrazione pagamenti (Stripe) e fatturazione elettronica (SDI) | FR-M6-06/07, BR-30 |
+
+Gli ADR si trovano in [`docs/architecture/adr/`](../architecture/adr/README.md).

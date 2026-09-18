@@ -18,7 +18,7 @@
 |----|---------|------|---------|
 | V-01 | **Frontend: Angular 20/21** (app dello studio, portale del committente, PWA di cantiere) | Tecnologico — deciso dal committente | Service worker Angular per la PWA; signals e change detection zoneless; SSR non richiesto (applicazioni dietro autenticazione), valutare il prerendering solo per le pagine pubbliche di accesso |
 | V-02 | **Backend: NestJS** (Node.js, TypeScript) | Tecnologico — deciso dal committente | Moduli per contesto di dominio; guard per RBAC/ABAC; worker per le code |
-| V-03 | **Database relazionale** — raccomandato **PostgreSQL** | Tecnologico — deciso dal committente (relazionale) | Row-Level Security come seconda barriera per l'isolamento (BR-04); tipi `numeric` per i calcoli R.A.I. (BR-22); JSONB per profili e snapshot |
+| V-03 | **Database relazionale PostgreSQL gestito su Supabase** (regione UE, es. Francoforte) | Tecnologico — deciso dal committente | Row-Level Security come seconda barriera per l'isolamento (BR-04); tipi `numeric` per i calcoli R.A.I. (BR-22); JSONB per profili e snapshot. **Le tabelle applicative stanno in uno schema non esposto dalle Data API di Supabase**: il client non accede mai direttamente al database, tutto passa da NestJS (ADR-004). Migrazioni SQL versionate con Supabase CLI |
 | V-04 | **Infrastruttura AWS**, in regione UE | Tecnologico — deciso dal committente | Vedi cap. 14; attenzione alla disponibilità regionale dei servizi (es. Amazon Transcribe **non** è disponibile in `eu-south-1` Milano) |
 | V-05 | **Libreria di calcolo R.A.I. unica in TypeScript**, condivisa da Angular e NestJS in un monorepo | Architetturale (derivato) | Garantisce l'equivalenza tra client e server (FR-M3-10); aritmetica decimale con una libreria dedicata, non `number` |
 | V-06 | PWA e non app nativa per la Beta | Di perimetro | Limiti iOS: niente Background Sync, quota di storage limitata, push web solo con app installata (EC-08) |
@@ -56,7 +56,7 @@ Scala: Probabilità (B/M/A) × Impatto (B/M/A).
 | Q-04 | Un Architetto vede tutte le commesse dello studio o solo quelle assegnate? | a) tutte; b) solo le assegnate; c) configurabile | c), predefinito "tutte" per studi piccoli | Studio partner | MS1 |
 | Q-05 | Più firmatari: basta uno o servono tutti? | a) uno; b) tutti; c) configurabile per commessa | c), predefinito "uno" | Studio partner + legale | MS3 |
 | Q-06 | Immagine della firma nei PDF: ammessa? | a) sì; b) no, solo spazio per la firma autografa/digitale | a) facoltativa, con avviso sul valore nullo come firma | Legale | MS2 |
-| Q-07 | Menzione della piattaforma ("Powered by") nel white-label | a) mai; b) solo nel piè di pagina delle email; c) secondo il piano | c) | Business | MS1 |
+| Q-07 | Menzione della piattaforma ("Powered by") nel white-label | a) mai; b) solo nel piè di pagina delle email; c) secondo il piano | **Chiusa (v0.2): c)** — badge "Redatto con" visibile in trial e piano Solo, rimovibile in Pro ed Enterprise (FR-M6-13) | Business | — |
 | Q-08 | Annullamento amministrativo di un'approvazione da parte dello studio | a) non ammesso; b) ammesso con motivazione e tracciamento | b) | Legale | MS3 |
 | Q-09 | Integrazione con un conservatore a norma | a) no; b) export compatibile; c) integrazione | a) nella Beta, b) nella v1.x | Business | Debriefing |
 | Q-10 | Dati della polizza RC nella relazione | a) sì; b) no | a) facoltativi | Studio partner | MS2 |
@@ -71,4 +71,12 @@ Scala: Probabilità (B/M/A) × Impatto (B/M/A).
 | Q-19 | Categorie particolari di dati (es. infortuni) nei testi dei verbali | a) avviso in interfaccia; b) nessuna gestione | a) | Legale | MS4 |
 | Q-20 | Periodo di conservazione predefinito dell'audio grezzo | 30 / 90 / 365 giorni | 90 | Legale + partner | MS4 |
 | Q-21 | Budget, team e data target della Beta | — | — | Business | Subito |
-| Q-22 | Scelta dei fornitori ASR/LLM (vedi cap. 14) dopo la valutazione sul corpus TC-AI | Amazon Transcribe + Amazon Bedrock vs alternative | Iniziare con i servizi AWS in regione UE; valutazione comparativa prima della MS4 | Lead tecnico | MS3 |
+| Q-22 | Scelta dei fornitori ASR/LLM (vedi cap. 14) dopo la valutazione sul corpus TC-AI | Amazon Transcribe + Amazon Bedrock; Whisper; Gemini (Vertex AI UE); altri | Interfacce astratte (NFR-AI-03); valutazione comparativa su qualità in cantiere, costo e **residenza UE dei dati** prima della MS4 | Lead tecnico | MS3 |
+| Q-23 | Durata del trial | 14 / 30 giorni | 30 giorni al lancio (early adopter), poi 14; configurabile per piano | Business | MS5 |
+| Q-24 | Listino definitivo (90 € vs 99 €, prezzi di Solo ed Enterprise, prezzo early adopter) | Cap. 15 | 49 / 99 / 199–249 €, annuale = 10 mesi | Business | MS5 |
+| Q-25 | Gestione dell'IVA nei pagamenti | Stripe Tax / aliquota fissa 22% per clienti IT | Aliquota fissa 22% IT al lancio (solo clienti italiani) | Business + commercialista | MS5 |
+| Q-26 | Provider di fatturazione elettronica SDI | Software di fatturazione con API | Da scegliere per affidabilità delle API, costo e webhook di stato | Business + commercialista | MS5 |
+| Q-27 | Definizione di "studio attivato" | — | Vedi FR-M6-15 | PO | MS3 |
+| Q-28 | Base giuridica e modalità del contatto commerciale diretto (canale D) | — | Validazione legale prima di scalare | Legale | MS5 |
+| Q-29 | Autenticazione degli utenti dello studio: Supabase Auth, Amazon Cognito o interna | ADR-003 | **Supabase Auth** (coerente con V-03; MFA TOTP, OAuth Google/Microsoft), JWT verificati da NestJS; committenti sempre con token propri (FR-M1-05) | Lead tecnico | MS0 |
+| Q-30 | Domini personalizzati: CloudFront SaaS Manager o Cloudflare for SaaS | ADR-005 | Da decidere su costo per dominio, automazione via API e dove sta il frontend | Lead tecnico | MS3 |
