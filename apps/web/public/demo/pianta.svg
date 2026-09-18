@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1600" height="1100" fill="#ffffff"/>
+  <!-- cornice -->
+  <rect x="30" y="30" width="1540" height="1040" fill="none" stroke="#1e293b" stroke-width="2"/>
+
+  <!-- pavimenti -->
+  <g fill="#f8fafc">
+    <rect x="180" y="160" width="560" height="420"/>
+    <rect x="740" y="160" width="340" height="420"/>
+    <rect x="1080" y="160" width="300" height="300"/>
+    <rect x="180" y="580" width="400" height="360"/>
+    <rect x="580" y="580" width="220" height="360"/>
+    <rect x="800" y="580" width="580" height="360"/>
+    <rect x="1080" y="460" width="300" height="120"/>
+  </g>
+  <g fill="none" stroke="#e2e8f0" stroke-width="1">
+    <path d="M180 200 H740 M180 240 H740 M180 280 H740 M180 320 H740 M180 360 H740 M180 400 H740 M180 440 H740 M180 480 H740 M180 520 H740 M180 560 H740"/>
+    <path d="M800 620 H1380 M800 660 H1380 M800 700 H1380 M800 740 H1380 M800 780 H1380 M800 820 H1380 M800 860 H1380 M800 900 H1380"/>
+  </g>
+
+  <!-- muri perimetrali -->
+  <g fill="none" stroke="#0f172a" stroke-width="18" stroke-linejoin="miter">
+    <path d="M180 160 H1380 V940 H180 Z"/>
+  </g>
+  <!-- tramezzi -->
+  <g stroke="#0f172a" stroke-width="9" fill="none">
+    <path d="M740 160 V430 M740 510 V580"/>
+    <path d="M180 580 H300 M380 580 H660 M740 580 H1000"/>
+    <path d="M1080 160 V360 M1080 440 V580"/>
+    <path d="M1080 460 H1380"/>
+    <path d="M580 580 V940"/>
+    <path d="M800 580 V760 M800 840 V940"/>
+    <path d="M1080 580 H1380"/>
+  </g>
+
+  <!-- finestre (interruzioni nei muri perimetrali) -->
+  <g fill="#ffffff" stroke="#0f172a" stroke-width="2">
+    <rect x="300" y="150" width="160" height="20"/>
+    <rect x="540" y="150" width="120" height="20"/>
+    <rect x="840" y="150" width="140" height="20"/>
+    <rect x="1170" y="150" width="120" height="20"/>
+    <rect x="1370" y="650" width="20" height="160"/>
+    <rect x="280" y="930" width="160" height="20"/>
+    <rect x="1000" y="930" width="220" height="20"/>
+    <rect x="170" y="330" width="20" height="120"/>
+  </g>
+  <g stroke="#0f172a" stroke-width="1.5">
+    <path d="M300 160 H460 M540 160 H660 M840 160 H980 M1170 160 H1290 M1380 650 V810 M280 940 H440 M1000 940 H1220 M180 330 V450"/>
+  </g>
+
+  <!-- porte -->
+  <g fill="none" stroke="#475569" stroke-width="2">
+    <path d="M740 430 A80 80 0 0 1 820 510"/><path d="M740 430 V510"/>
+    <path d="M300 580 A80 80 0 0 0 380 660"/><path d="M380 580 V660"/>
+    <path d="M1080 360 A80 80 0 0 0 1000 440"/><path d="M1080 440 H1000"/>
+    <path d="M800 760 A80 80 0 0 1 880 840"/><path d="M800 840 H880"/>
+    <path d="M660 580 A80 80 0 0 1 740 660"/><path d="M740 580 V660"/>
+  </g>
+
+  <!-- arredi schematici -->
+  <g fill="none" stroke="#94a3b8" stroke-width="2">
+    <rect x="240" y="380" width="260" height="110" rx="12"/>
+    <rect x="560" y="260" width="120" height="180" rx="6"/>
+    <rect x="790" y="210" width="240" height="70"/>
+    <rect x="880" y="360" width="160" height="90" rx="8"/>
+    <rect x="1130" y="210" width="200" height="200" rx="4"/>
+    <rect x="230" y="660" width="220" height="200" rx="4"/>
+    <rect x="620" y="640" width="130" height="70" rx="30"/>
+    <circle cx="690" cy="840" r="28"/>
+    <rect x="950" y="640" width="260" height="220" rx="4"/>
+    <rect x="1120" y="490" width="220" height="60" rx="4"/>
+  </g>
+
+  <!-- etichette dei vani -->
+  <g fill="#0f172a" text-anchor="middle">
+    <text x="460" y="300" font-size="30" font-weight="700">SOGGIORNO</text>
+    <text x="460" y="336" font-size="22" fill="#475569">Sp 24,50 mq · h 2,90</text>
+    <text x="910" y="320" font-size="28" font-weight="700">CUCINA</text>
+    <text x="910" y="352" font-size="22" fill="#475569">Sp 11,80 mq</text>
+    <text x="1230" y="440" font-size="24" font-weight="700">STUDIO</text>
+    <text x="1230" y="530" font-size="20" font-weight="700">DISIMPEGNO</text>
+    <text x="380" y="900" font-size="26" font-weight="700">CAMERA 2</text>
+    <text x="690" y="760" font-size="24" font-weight="700">BAGNO</text>
+    <text x="690" y="790" font-size="20" fill="#475569">5,10 mq · VMC</text>
+    <text x="1090" y="900" font-size="28" font-weight="700">CAMERA MATRIMONIALE</text>
+    <text x="1090" y="928" font-size="20" fill="#475569">Sp 16,20 mq</text>
+  </g>
+
+  <!-- quote -->
+  <g stroke="#64748b" stroke-width="1.5" fill="none">
+    <path d="M180 110 H1380 M180 100 V120 M740 100 V120 M1080 100 V120 M1380 100 V120"/>
+    <path d="M1440 160 V940 M1430 160 H1450 M1430 580 H1450 M1430 940 H1450"/>
+  </g>
+  <g fill="#64748b" font-size="20" text-anchor="middle">
+    <text x="460" y="96">5,60</text><text x="910" y="96">3,40</text><text x="1230" y="96">3,00</text>
+    <text x="1480" y="376" transform="rotate(90 1480 376)">4,20</text>
+    <text x="1480" y="766" transform="rotate(90 1480 766)">3,60</text>
+  </g>
+
+  <!-- nord -->
+  <g transform="translate(110 1000)">
+    <circle r="30" fill="none" stroke="#0f172a" stroke-width="2"/>
+    <path d="M0 -26 L10 10 L0 3 L-10 10 Z" fill="#0f172a"/>
+    <text y="-36" text-anchor="middle" font-size="18" font-weight="700">N</text>
+  </g>
+
+  <!-- cartiglio -->
+  <g transform="translate(1040 980)">
+    <rect width="520" height="80" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <path d="M360 0 V80 M0 40 H360" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="28" font-size="18" font-weight="700">A-101 · PIANTA PIANO PRIMO</text>
+    <text x="14" y="66" font-size="15" fill="#475569">Stato di progetto · scala 1:50</text>
+    <text x="374" y="30" font-size="15" fill="#475569">Commessa</text>
+    <text x="374" y="62" font-size="22" font-weight="700">2026-014</text>
+  </g>
+</svg>

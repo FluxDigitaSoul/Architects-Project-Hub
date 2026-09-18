@@ -14,13 +14,16 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspace packages/contracts --workspace packages/rai-engine --workspace apps/api",
+    "test": "npm run test --workspace packages/contracts --workspace packages/rai-engine --workspace apps/api --workspace apps/web",
     "test:db": "npm run test --workspace db-tests",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:start": "docker run -d --name aph-pg -e POSTGRES_PASSWORD=postgres -p 54329:5432 postgres:17-alpine",
-    "db:stop": "docker rm -f aph-pg"
+    "db:start": "docker run -d --name aph-pg -e POSTGRES_PASSWORD=postgres -p 54340:5432 postgres:17-alpine",
+    "db:stop": "docker rm -f aph-pg",
+    "dev:web": "npm run start --workspace apps/web",
+    "test:e2e:api": "npm run test:e2e --workspace apps/api",
+    "dev:api": "npm run start --workspace apps/api"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
