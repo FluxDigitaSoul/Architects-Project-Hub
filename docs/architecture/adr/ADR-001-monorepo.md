@@ -18,11 +18,11 @@ Il prodotto ha un backend NestJS, un frontend Angular (app dello studio, portale
 
 ## Alternative considerate
 
-| Alternativa | Perché no (per ora) |
-|-------------|---------------------|
-| Due repository separati (BE e FE) | Il motore R.A.I. e i contratti andrebbero pubblicati come pacchetti versionati: più attrito, rischio di divergenza tra client e server, due CI da mantenere |
-| Nx | Ottimo per monorepo grandi (cache, "affected"), ma aggiunge configurazione e dipendenze. Si potrà adottare più avanti senza riscrivere il codice, se i tempi di build lo giustificano |
-| pnpm / Turborepo | pnpm non è installato nell'ambiente di sviluppo e npm 11 copre i bisogni attuali; Turborepo valutabile insieme a Nx |
+| Alternativa                       | Perché no (per ora)                                                                                                                                                                   |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Due repository separati (BE e FE) | Il motore R.A.I. e i contratti andrebbero pubblicati come pacchetti versionati: più attrito, rischio di divergenza tra client e server, due CI da mantenere                           |
+| Nx                                | Ottimo per monorepo grandi (cache, "affected"), ma aggiunge configurazione e dipendenze. Si potrà adottare più avanti senza riscrivere il codice, se i tempi di build lo giustificano |
+| pnpm / Turborepo                  | pnpm non è installato nell'ambiente di sviluppo e npm 11 copre i bisogni attuali; Turborepo valutabile insieme a Nx                                                                   |
 
 ## Conseguenze
 

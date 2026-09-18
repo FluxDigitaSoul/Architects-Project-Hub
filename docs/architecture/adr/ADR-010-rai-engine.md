@@ -17,12 +17,12 @@ Il calcolo dei rapporti aeroilluminanti deve essere **identico** nel browser (fe
 
 ## Alternative considerate
 
-| Alternativa | Perché no |
-|-------------|-----------|
-| Calcolo solo lato server | Niente feedback in tempo reale offline o con latenza; la UX del Modulo 3 lo richiede |
-| Due implementazioni (TS nel client, SQL o altro nel server) | Rischio di divergenza; violerebbe V-05 |
-| `number` con arrotondamenti "furbi" | Fragile; errori nei casi al limite, proprio quelli che contano per la conformità |
-| `big.js` | Adatto anche lui; `decimal.js` offre più funzioni (confronti, clamp, formattazione) con un'API simile |
+| Alternativa                                                 | Perché no                                                                                             |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Calcolo solo lato server                                    | Niente feedback in tempo reale offline o con latenza; la UX del Modulo 3 lo richiede                  |
+| Due implementazioni (TS nel client, SQL o altro nel server) | Rischio di divergenza; violerebbe V-05                                                                |
+| `number` con arrotondamenti "furbi"                         | Fragile; errori nei casi al limite, proprio quelli che contano per la conformità                      |
+| `big.js`                                                    | Adatto anche lui; `decimal.js` offre più funzioni (confronti, clamp, formattazione) con un'API simile |
 
 ## Conseguenze
 

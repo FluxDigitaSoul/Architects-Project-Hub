@@ -1,0 +1,37 @@
+{
+  "name": "architects-project-hub",
+  "private": true,
+  "description": "Project Hub white-label per studi di architettura (SaaS multi-tenant)",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "db-tests"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspace packages/contracts --workspace packages/rai-engine --workspace apps/api",
+    "test:db": "npm run test --workspace db-tests",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:start": "docker run -d --name aph-pg -e POSTGRES_PASSWORD=postgres -p 54329:5432 postgres:17-alpine",
+    "db:stop": "docker rm -f aph-pg"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.5",
+    "@vitest/coverage-v8": "^5.0.1",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.8",
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
+  }
+}

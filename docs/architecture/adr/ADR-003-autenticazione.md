@@ -5,6 +5,7 @@
 ## Contesto
 
 Ci sono due popolazioni di utenti molto diverse:
+
 1. **Utenti dello studio** (Owner, Architetto, Collaboratore): account veri, password, MFA, registrazione self-service, login con Google/Microsoft (FR-M6-01).
 2. **Committenti:** nessuna password; accesso con Magic Link personale e revocabile legato a una commessa (FR-M1-05), OTP per le azioni vincolanti (FR-M2-15).
 
@@ -22,11 +23,11 @@ Il database è PostgreSQL su Supabase (V-03).
 
 ## Alternative considerate
 
-| Alternativa | Perché no |
-|-------------|-----------|
-| Amazon Cognito | Coerente con AWS, ma aggiunge un secondo fornitore d'identità accanto a Supabase; gestione più complessa degli host multi-tenant e delle callback |
-| Autenticazione interna in NestJS | Massimo controllo, ma molto codice di sicurezza scritto a mano (MFA, reset, OAuth, protezione brute force) da mantenere |
-| Committenti come utenti Supabase Auth | Mescola identità "leggere" legate a una commessa con account veri; revoca e scadenza per commessa diventano complicate |
+| Alternativa                           | Perché no                                                                                                                                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Amazon Cognito                        | Coerente con AWS, ma aggiunge un secondo fornitore d'identità accanto a Supabase; gestione più complessa degli host multi-tenant e delle callback |
+| Autenticazione interna in NestJS      | Massimo controllo, ma molto codice di sicurezza scritto a mano (MFA, reset, OAuth, protezione brute force) da mantenere                           |
+| Committenti come utenti Supabase Auth | Mescola identità "leggere" legate a una commessa con account veri; revoca e scadenza per commessa diventano complicate                            |
 
 ## Conseguenze
 
