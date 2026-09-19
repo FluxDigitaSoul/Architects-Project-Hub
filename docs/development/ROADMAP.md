@@ -1,0 +1,87 @@
+# Roadmap di sviluppo — backend first
+
+Piano operativo che traduce l'AFU ([docs/afu](../afu/README.md)) in step di sviluppo verificabili. Ogni step:
+
+- chiude un insieme preciso di requisiti (ID dell'AFU);
+- si conclude con **test verdi** e un **commit dedicato** (Conventional Commits);
+- aggiorna lo stato in questa pagina.
+
+**Legenda stato:** ⬜ da fare · 🟨 in corso · ✅ fatto · ⏸️ in attesa di input (es. credenziali)
+
+---
+
+## Fase A — Fondamenta backend e database
+
+| Step   | Contenuto                                                                                                                                                                                                                                                        | Requisiti AFU                                        | Stato              |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------ |
+| **A0** | AFU v0.2 (SaaS self-service, Modulo 6, business), ADR iniziali, questa roadmap                                                                                                                                                                                   | cap. 15, M6, ADR-001/003/004                         | ✅                 |
+| **A1** | Monorepo npm workspaces, TypeScript strict, lint/format, test runner, CI GitHub Actions; scheletro NestJS `apps/api` con config validata, health check, log strutturati, id di richiesta, formato d'errore uniforme                                              | NFR-OBS-01, NFR-MAINT-05, NFR-SEC-10, FR-MT-18       | ✅ (CI GitHub Actions: `.github/workflows/ci.yml`; e2e su main con i segreti del repository) |
+| **A2** | `packages/rai-engine`: motore di calcolo R.A.I. puro, aritmetica decimale, corpus di regressione TC-R-01..18                                                                                                                                                     | FR-M3-05/08/10/12/13/14, BR-02, BR-22                | ✅                 |
+| **A3** | `packages/contracts`: codici d'errore delle BR, enum di dominio, chiavi degli entitlements                                                                                                                                                                       | cap. 6, FR-M6-05                                     | ✅                 |
+| **A4** | Migrazioni DB di base (applicate al progetto cloud il 2026-09-18, linter di sicurezza pulito): schema `app`, ruoli, tenant, profili utente, membership, piani/versioni/abbonamenti/override/consumi, accettazioni legali, audit append-only, RLS, funzione di provisioning atomico, seed dei piani; test di isolamento su Postgres reale | BR-04, BR-12, BR-26, BR-28, FR-M6-02/05/17, FR-MT-07 | ✅                 |
+| **A5** | Accesso ai dati in NestJS: pool Postgres, transazione per richiesta con contesto tenant (`SET LOCAL`), modulo `database`                                                                                                                                         | BR-04, ADR-004                                       | ✅ |
+| **A6** | Autenticazione: verifica JWT Supabase (JWKS), risoluzione del tenant dall'host, guard di membership e ruolo (RBAC/ABAC)                                                                                                                                          | FR-MT-01..03, cap. 2                                 | ✅ (JWKS ES256, tenant da sottodominio o header `X-Tenant-Slug`, 404 per chi non è membro) |
+| **A7** | Modulo `entitlements` (servizio + guard), contatori di consumo                                                                                                                                                                                                   | FR-M6-05/09, BR-28/29                                | ✅ servizio (`EntitlementsService`); contatori di consumo con B1 |
+| **A8** | Onboarding: `POST /onboarding/tenants` (provisioning), `GET /public/tenant-context` (branding per host), accettazione dei termini                                                                                                                                | FR-M6-02/17, FR-M0-02..06, NFR-BRAND-03              | ✅ onboarding, `/me`, contesto pubblico, accettazione dei termini registrata |
+| **A9** | Audit log applicativo (interceptor + servizio), console Platform Admin (API): tenant, piani, override, trial                                                                                                                                                     | FR-MT-07/15, FR-M6-14                                | 🟡 audit applicativo fatto (AuditService, log di congelamento); console Platform Admin da fare |
+
+## Fase B — Dominio della commessa
+
+| Step | Contenuto                                                                                 | Requisiti AFU                 | Stato                      |
+| ---- | ----------------------------------------------------------------------------------------- | ----------------------------- | -------------------------- |
+| B1   | Commesse, team, imprese; stati; limiti di piano                                           | FR-M1-01..03, BR-17           | ✅ migrazione 0600 + API commesse, team (BR-17), imprese, stati, codice progressivo, dashboard |
+| B2   | Committenti, Magic Link (token hash), sessioni del portale, OTP, revoca                   | FR-M1-05/06, BR-03            | ✅ Magic Link (hash), sessioni cookie, OTP, revoca, richiesta link self-service |
+| B3   | Storage file: upload diretto S3 con URL firmati, quarantena, antimalware                  | FR-M2-01, NFR-SEC-03/04/08    | ✅ su Supabase Storage (URL firmati, tipo reale, contenuti attivi) — S3 e antimalware da fare |
+| B4   | Elaborati, versioni, pagine, pin, commenti, sign-off, richieste di modifica               | FR-M2-*, BR-01/10/11/14/18/20 | ✅ migrazione 0700 + API e portale; trigger per BR-01/18; test e2e verdi |
+| B5   | R.A.I. persistente: fabbricati, unità, vani, aperture, abaco, profili normativi, snapshot | FR-M3-*, BR-06/21             | ✅ migrazione 0800/0850 + calcolo lato server con @aph/rai-engine, snapshot immutabili |
+| B6   | Sopralluoghi, foto, audio, API di sincronizzazione offline idempotente                    | FR-M4-*, BR-16/23/24          | ✅ migrazione 0900 + API; idempotenza X-Client-Op-Id (BR-24); finalizzazione BR-05/08/23 |
+| B7   | Worker: code, trascrizione e strutturazione AI                                            | FR-M4-09/10, BR-05            | ⏸️ scelta fornitori (Q-22): tabelle e stati pronti |
+| B8   | Worker: generazione PDF (verbale, relazione, approvazione)                                | FR-M5-*, NFR-PERF-01          | ✅ PDF sincroni (verbale, relazione R.A.I., riepilogo approvazione), firma PAdES, invio email |
+
+## Fase C — Frontend (Angular 20/21)
+
+| Step | Contenuto | Requisiti AFU | Stato |
+|------|-----------|---------------|-------|
+| C1 | Scheletro Angular 21 (zoneless, signals, lazy routes), design system white-label con token CSS e contrasto automatico, shell (sidebar + topbar), deploy Vercel (`apps/web/vercel.json`) | FR-M0-04, NFR-BRAND-*, NFR-UX-01 | ✅ |
+| C2 | Login e registrazione (Supabase Auth), wizard di onboarding con anteprima dal vivo | FR-M6-02, FR-MT-01 | ✅ |
+| C3 | Dashboard dello studio, elenco commesse con filtri e ricerca, fascicolo commessa (panoramica, tavole, sopralluoghi, documenti, richieste, committenti, team, dati) | FR-M1-01..07 | ✅ |
+| C4 | Revisione tavole: upload e versioni, viewer PDF (pdf.js in worker), pin in coordinate %, thread, pubblicazione con scadenza, trasferimento pin, log di congelamento, richieste di modifica; portale del committente con Magic Link, informativa, approvazione con OTP | FR-M2-01..18, FR-M1-05/06, BR-01/10/11/14/18/19/20/25 | ✅ |
+| C5 | Modulo R.A.I. persistente: fabbricati, unità, vani, aperture, deroghe, profilo e quota, revisioni (snapshot) e relazione / report di verifica | FR-M3-*, FR-M5-20..22, BR-06/21 | ✅ (abaco serramenti solo lato API) |
+| C6 | Diario di cantiere: sopralluoghi numerati, presenti con DL, voci per sezione, foto e note vocali con coda offline (IndexedDB), difformità da verificare, finalizzazione e verbale PDF | FR-M4-02..08/11..16, BR-05/09/16/23/24 | ✅ (AI in attesa di Q-22) |
+| C6-bis | PWA installabile (manifest, icone, service worker), coda offline di tutte le operazioni del sopralluogo (`FieldOps`), copia locale dei dati, avvio del sopralluogo senza rete, foto ricodificate senza EXIF/GPS | FR-M4-01/03/05/14, BR-23/24, PRIV-11 | ✅ 2026-09-19 |
+| C7 | Back-office FDS | FR-M6-14 | ⬜ |
+| C8 | Collegamento alle API reali (F1–F7): auth, commesse, revisione, portale, R.A.I., documenti (firma PAdES, invio, archivio), cantiere, impostazioni (profilo, studio, marchio e testi, persone). Rimossi store e dati simulati | tutti i moduli | ✅ 2026-09-19 |
+| C9 | Automazione (migrazione `20260919000100`, `apps/api/src/automation`): coda delle notifiche in outbox e invio raggruppato (10 minuti o riepilogo alle 18, preferenza di membri e committenti), promemoria di revisione 2 giorni prima e il giorno stesso, conservazione dei dati (audio grezzo, notifiche, link scaduti, IP dell'audit); scheduler interno con lease + endpoint protetto per scheduler esterni; "in ritardo" in dashboard secondo la scadenza | FR-M2-05/12, FR-MT-06, BR-19, PRIV-03, cap. 12.2 e 14.3 | ✅ 2026-09-19 |
+
+## Fase D — Commercializzazione
+
+D1 Stripe (Checkout, Customer Portal, webhook) · D2 fatturazione elettronica SDI · D3 trial, coupon, email del ciclo di vita · D4 progetto demo · D5 lead magnet.
+
+---
+
+## Ambienti
+
+| Ambiente | Dove | Note |
+|----------|------|------|
+| **Database di test (cloud)** | Supabase, progetto **"depasquale687-star's Project"** — ref **`fwftucqnfkuzlnriyzja`** — regione **eu-west-1** (Irlanda) — https://fwftucqnfkuzlnriyzja.supabase.co | Unico database in uso. Migrazioni `supabase/migrations/0100…1300` applicate. L'API si collega con il ruolo `app_api` dal pooler `aws-1-eu-west-1.pooler.supabase.com:6543` (utente `app_api.fwftucqnfkuzlnriyzja`). |
+| Credenziali | File `.env` nella radice (ignorato da git) | Mai nel repository. La `SUPABASE_SECRET_KEY` è stata condivisa in chat: **rigenerarla prima della produzione**. |
+| Storage file | Bucket privato **`project-files`** su Supabase Storage | ⚠️ **Temporaneo al posto di Amazon S3** (vedi sotto). |
+
+### Migrazione storage a S3 (da fare prima del lancio)
+
+Per la Beta i file stanno nel bucket Supabase `project-files` (migrazione `0400`). Il backend accede allo storage solo tramite l'interfaccia `FileStorage`: per passare ad Amazon S3 (AFU cap. 14, NFR-SEC-03/04) basta un nuovo adapter S3 + copia degli oggetti mantenendo le stesse chiavi (`tenants/{tenantId}/…`).
+
+## Cosa serve dal committente, e quando
+
+| Input                                                                      | Serve per                      | Stato        |
+| -------------------------------------------------------------------------- | ------------------------------ | ------------ |
+| Progetto Supabase di **test** (URL, chiavi, stringa di connessione del DB) | A4 (applicazione), A5, A6      | ⏸️ in attesa |
+| Account AWS (o sotto-account di test)                                      | B3, B7, B8, deploy             | ⏸️           |
+| Risposte al questionario dello studio partner                              | B5 (profili normativi), B6, B4 | ⏸️           |
+| Account Stripe (modalità test)                                             | D1                             | Più avanti   |
+
+> **Credenziali:** non vanno mai nel repository. Si mettono in `.env` locale (ignorato da git; vedi `.env.example`) e, per la CI, nei secret di GitHub.
+
+## Come si lavora in locale
+
+Vedi il [README principale](../../README.md).

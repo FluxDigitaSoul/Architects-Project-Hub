@@ -1,0 +1,25 @@
+{
+  "name": "@aph/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratti condivisi FE/BE: codici d'errore, enum di dominio, entitlements",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  }
+}

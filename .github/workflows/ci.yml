@@ -1,0 +1,65 @@
+# Integrazione continua (ROADMAP A1): a ogni push e pull request controlla tipi, lint, test e build
+# di pacchetti, API e interfaccia. I test e2e contro Supabase girano solo su main o a mano, con i
+# segreti del repository (senza segreti si saltano da soli).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Tipi, lint, test e build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # L'API importa @aph/contracts e @aph/rai-engine dalla build dei pacchetti.
+      - run: npm run build --workspace packages/contracts --workspace packages/rai-engine
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build --workspace apps/api --workspace apps/web
+
+  e2e:
+    name: Test e2e dell'API (Supabase di test)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Un solo run alla volta: i test scrivono dati e2e-* sullo stesso progetto.
+    concurrency:
+      group: e2e-supabase
+      cancel-in-progress: false
+    env:
+      NODE_ENV: test
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_JWKS_URL: ${{ secrets.SUPABASE_JWKS_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      MAIL_PROVIDER: log
+      JOBS_SCHEDULER: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace packages/contracts --workspace packages/rai-engine
+      - run: npm run test:e2e:api

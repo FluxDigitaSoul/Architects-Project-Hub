@@ -1,0 +1,29 @@
+{
+  "name": "@aph/rai-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Motore di calcolo dei rapporti aeroilluminanti (R.A.I.) e dei requisiti igienico-sanitari — libreria pura condivisa FE/BE (ADR-010)",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  }
+}
