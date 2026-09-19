@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
+import { localDate } from '../automation/time';
 import type { Tx } from '../database/database';
 import { RaiCalcService } from '../rai/rai-calc.service';
 import { type StudioScope, loadVisibleProject } from '../studio/studio-scope';
@@ -59,7 +60,8 @@ export class DashboardService {
         (select count(*) from app.drawing_versions v join app.drawings d on d.id = v.drawing_id join vp on vp.id = d.project_id
           where v.status = 'PUBLISHED') as awaiting,
         (select count(*) from app.drawing_versions v join app.drawings d on d.id = v.drawing_id join vp on vp.id = d.project_id
-          where v.status = 'PUBLISHED' and v.published_at < now() - make_interval(days => ${OVERDUE_DAYS})) as overdue,
+          where v.status = 'PUBLISHED' and (v.review_due_date < (now() at time zone 'Europe/Rome')::date
+            or (v.review_due_date is null and v.published_at < now() - make_interval(days => ${OVERDUE_DAYS})))) as overdue,
         (select count(*) from app.pins pin join app.drawing_versions v on v.id = pin.version_id
            join app.drawings d on d.id = v.drawing_id join vp on vp.id = d.project_id where pin.status = 'OPEN') as pins,
         (select count(*) from app.site_visits s join vp on vp.id = s.project_id
@@ -137,7 +139,7 @@ export class DashboardService {
   private async approvals(tx: Tx, projectId: string) {
     const latest = await tx.selectFrom('drawings as d')
       .innerJoin('drawing_versions as v', 'v.drawing_id', 'd.id')
-      .select(['d.id', 'v.status', 'v.published_at'])
+      .select(['d.id', 'v.status', 'v.published_at', 'v.review_due_date'])
       .where('d.project_id', '=', projectId)
       .where('v.status', 'not in', ['DISCARDED', 'ERROR', 'PROCESSING'])
       .where('v.number', '=', (eb) => eb.selectFrom('drawing_versions as v2').select((e) => e.fn.max('v2.number').as('m'))
@@ -146,7 +148,11 @@ export class DashboardService {
     const byStatus: Record<string, number> = { DRAFT: 0, PUBLISHED: 0, APPROVED: 0, SUPERSEDED: 0 };
     latest.forEach((v) => { byStatus[v.status] = (byStatus[v.status] ?? 0) + 1; });
     const threshold = Date.now() - OVERDUE_DAYS * DAY_MS;
-    const awaitingOverDays = latest.filter((v) => v.status === 'PUBLISHED' && v.published_at && new Date(v.published_at).getTime() < threshold).length;
+    // FR-M2-05: "in ritardo" = scadenza di revisione passata, oppure (senza scadenza) pubblicata da oltre N giorni.
+    const today = localDate(new Date());
+    const awaitingOverDays = latest.filter((v) => v.status === 'PUBLISHED' && (v.review_due_date
+      ? v.review_due_date < today
+      : Boolean(v.published_at) && new Date(v.published_at!).getTime() < threshold)).length;
     return { byStatus, awaitingOverDays, overdueThresholdDays: OVERDUE_DAYS };
   }
 

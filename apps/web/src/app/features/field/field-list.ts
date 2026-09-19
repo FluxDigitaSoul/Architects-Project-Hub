@@ -1,84 +1,85 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, resource, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { FieldStore } from '../../core/data/field-store';
-import { ProjectsStore } from '../../core/data/projects-store';
-import { fmtDate, fmtRelative } from '../../core/data/format';
-import { VISIT_STATUS_LABEL } from '../../core/models';
+import { toApiError } from '../../core/api/api';
+import { FieldApi } from '../../core/api/field-api';
+import { fmtRelative } from '../../core/data/format';
+import { FieldOps } from '../../core/field/field-ops';
+import { MediaQueue } from '../../core/field/media-queue';
+import { EmptyState } from '../../shared/ui/empty-state';
 import { Icon } from '../../shared/ui/icon';
 import { PageHeader } from '../../shared/ui/page-header';
+import { Toaster } from '../../shared/ui/toast';
 
-/** "I miei cantieri": punto di partenza dal telefono (AFU FR-M4-02). */
+/**
+ * Cantiere (AFU FR-M4-02): le commesse attive a cui sei assegnato, con verbali in bozza e
+ * difformità aperte, per avviare subito un sopralluogo dal telefono.
+ */
 @Component({
   selector: 'app-field-list',
-  imports: [RouterLink, Icon, PageHeader],
+  imports: [RouterLink, EmptyState, Icon, PageHeader],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
   template: `
-    <ui-page-header title="Cantiere" subtitle="Sopralluoghi con foto e note vocali: il verbale è pronto prima di andare via." />
-
-    @if (drafts().length) {
-      <h3 class="sec">Da completare</h3>
-      <div class="stack">
-        @for (v of drafts(); track v.id) {
-          <a class="card item" [routerLink]="['/cantiere', v.id]">
-            <span class="ic warn"><ui-icon name="clock" [size]="18" /></span>
-            <span class="tx"><b>Sopralluogo n. {{ v.number }} · {{ store.codeOf(v.projectId) }}</b><span class="muted small">{{ label[v.status] }} · {{ rel(v.date) }}</span></span>
-            <ui-icon name="chevron-right" [size]="18" class="muted" />
-          </a>
+    <ui-page-header title="Cantiere" subtitle="I tuoi cantieri attivi: avvia un sopralluogo, scatta foto, detta le note." />
+    @if (queue.pendingCount() + ops.pendingCount(); as n) {
+      <div class="card sync small"><ui-icon name="refresh" [size]="15" /> {{ n === 1 ? '1 elemento' : n + ' elementi' }} (foto, note, modifiche ai verbali) in attesa di invio: partiranno da soli appena c'è rete.</div>
+    }
+    @if (sites.error()) {
+      <div class="card error-box">{{ errorText() }} <button class="btn btn-outline btn-sm" (click)="sites.reload()">Riprova</button></div>
+    } @else if (sites.value(); as list) {
+      <div class="grid grid-3">
+        @for (s of list; track s.projectId) {
+          <div class="card site">
+            <a [routerLink]="['/commesse', s.projectId]" [queryParams]="{ scheda: 'sopralluoghi' }" class="info">
+              <span class="eyebrow">{{ s.code }}</span>
+              <b>{{ s.title }}</b>
+              <span class="muted small">{{ s.municipality }} · {{ s.lastVisitAt ? 'ultimo sopralluogo ' + rel(s.lastVisitAt) : 'nessun sopralluogo' }}</span>
+              <span class="row chips">
+                @if (s.drafts) { <span class="badge badge-warning">{{ s.drafts }} in bozza</span> }
+                @if (s.openActions) { <span class="badge badge-danger">{{ s.openActions }} difformità aperte</span> }
+              </span>
+            </a>
+            <button class="btn btn-primary" [disabled]="busy() === s.projectId" (click)="start(s.projectId)"><ui-icon name="hardhat" [size]="16" /> Nuovo sopralluogo</button>
+          </div>
+        } @empty {
+          <div class="card span"><ui-empty icon="hardhat" title="Nessun cantiere assegnato" text="Qui compaiono le commesse attive in cui fai parte del team. Chiedi di essere assegnato dalla scheda Team della commessa." /></div>
         }
       </div>
-    }
-
-    <h3 class="sec">I miei cantieri</h3>
-    <div class="stack">
-      @for (r of sites(); track r.p.id) {
-        <div class="card site">
-          <div class="site-head">
-            <div>
-              <div class="eyebrow">{{ r.p.code }}</div>
-              <b>{{ r.p.title }}</b>
-              <div class="muted small">{{ r.p.address }}</div>
-            </div>
-          </div>
-          <div class="site-foot">
-            <span class="muted small">{{ r.count }} sopralluoghi@if (r.last) { · ultimo {{ date(r.last) }} }</span>
-            <button class="btn btn-primary" (click)="start(r.p.id)"><ui-icon name="plus" [size]="16" /> Nuovo sopralluogo</button>
-          </div>
-        </div>
-      }
-    </div>
+    } @else { <div class="grid grid-3">@for (i of [1, 2, 3]; track i) { <div class="card skeleton"></div> }</div> }
   `,
   styles: `
-    :host { display: block; max-width: 720px; }
-    .sec { margin: 18px 0 10px; }
-    .item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
-    .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; flex: none; }
-    .ic.warn { background: var(--warning-soft); color: var(--warning); }
-    .tx { flex: 1; display: grid; gap: 2px; }
+    .sync { display: flex; gap: 8px; align-items: center; padding: 10px 14px; margin-bottom: 12px; background: var(--info-soft); }
     .site { padding: 16px; display: grid; gap: 12px; }
-    .site-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-    .site-foot .btn { height: 44px; }
+    .info { display: grid; gap: 4px; color: inherit; }
+    .chips { gap: 6px; flex-wrap: wrap; }
+    .site .btn { justify-content: center; height: 44px; }
+    .span { grid-column: 1 / -1; }
+    .skeleton { height: 150px; }
+    .error-box { padding: 20px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
   `,
 })
 export class FieldList {
-  protected readonly store = inject(ProjectsStore);
-  private readonly field = inject(FieldStore);
+  private readonly api = inject(FieldApi);
   private readonly router = inject(Router);
-  protected readonly label = VISIT_STATUS_LABEL;
+  private readonly toaster = inject(Toaster);
+  protected readonly queue = inject(MediaQueue);
+  protected readonly ops = inject(FieldOps);
   protected readonly rel = fmtRelative;
-  protected readonly date = fmtDate;
+  protected readonly busy = signal<string | null>(null);
+  /** FR-M4-14: senza rete si vede l'ultimo elenco salvato sul telefono. */
+  protected readonly sites = resource({ loader: () => this.ops.load('sites', () => this.api.sites()).then((r) => r.data) });
+  protected readonly errorText = computed(() => toApiError(this.sites.error()).userMessage);
 
-  protected readonly drafts = computed(() => this.store.visits().filter((v) => v.status === 'DRAFT' || v.status === 'REVIEW'));
-  protected readonly sites = computed(() =>
-    this.store.active().map((p) => {
-      const visits = this.store.visits().filter((v) => v.projectId === p.id);
-      const last = visits.map((v) => v.date).sort().at(-1) ?? null;
-      return { p, count: visits.length, last };
-    }),
-  );
-
-  protected start(projectId: string): void {
-    const id = this.field.start(projectId);
-    void this.router.navigate(['/cantiere', id]);
+  protected async start(projectId: string): Promise<void> {
+    this.busy.set(projectId);
+    try {
+      const v = await this.ops.startVisit(projectId);
+      this.toaster.show(v.number ? `Sopralluogo n. ${v.number} avviato` : 'Sopralluogo avviato sul telefono: il numero arriva appena torna la rete');
+      await this.router.navigate(['/commesse', projectId, 'sopralluoghi', v.id]);
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    } finally {
+      this.busy.set(null);
+    }
   }
 }

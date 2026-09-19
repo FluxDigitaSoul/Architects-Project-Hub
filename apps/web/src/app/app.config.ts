@@ -2,10 +2,12 @@ import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/
 import {
   type ApplicationConfig,
   inject,
+  isDevMode,
   provideAppInitializer,
   provideBrowserGlobalErrorListeners,
 } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
 
 import { routes } from './app.routes';
 import { apiInterceptor } from './core/api/api';
@@ -22,5 +24,8 @@ export const appConfig: ApplicationConfig = {
       withComponentInputBinding(),
       withInMemoryScrolling({ scrollPositionRestoration: 'top' }),
     ),
+    // FR-M4-01: app installabile che si apre anche senza rete (solo in produzione; i dati offline
+    // stanno in IndexedDB, il service worker non memorizza le risposte delle API).
+    provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
   ],
 };

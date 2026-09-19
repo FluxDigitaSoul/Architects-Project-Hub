@@ -27,6 +27,13 @@ export const envSchema = z.object({
   MAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
   RESEND_API_KEY: z.string().optional(),
   MAIL_FROM: z.string().email().default('notifiche@example.com'),
+  /**
+   * Job pianificati (AFU cap. 14.3). `JOBS_SCHEDULER=on` li esegue dentro l'API (con più istanze
+   * il lease su `job_runs` evita doppioni); `JOBS_SECRET` abilita `POST /api/v1/internal/jobs/:name`
+   * per uno scheduler esterno (EventBridge, cron). Senza segreto l'endpoint non esiste.
+   */
+  JOBS_SCHEDULER: z.enum(['on', 'off']).optional(),
+  JOBS_SECRET: z.string().min(32, 'JOBS_SECRET deve avere almeno 32 caratteri').optional(),
 }).refine((env) => env.MAIL_PROVIDER !== 'resend' || Boolean(env.RESEND_API_KEY), {
   message: 'RESEND_API_KEY è obbligatoria con MAIL_PROVIDER=resend',
   path: ['RESEND_API_KEY'],

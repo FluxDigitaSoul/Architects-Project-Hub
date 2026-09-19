@@ -14,14 +14,22 @@ import { Confirmer } from '../../shared/ui/confirm';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { Icon } from '../../shared/ui/icon';
 import { Toaster } from '../../shared/ui/toast';
+import { ProjectChangeRequests } from './project-change-requests';
 import { ProjectContacts } from './project-contacts';
 import { ProjectData } from './project-data';
+import { ProjectDocuments } from './project-documents';
+import { ProjectDrawings } from './project-drawings';
 import { ProjectOverview } from './project-overview';
 import { ProjectTeam } from './project-team';
+import { ProjectVisits } from './project-visits';
 
-type Tab = 'panoramica' | 'committenti' | 'team' | 'dati';
+type Tab = 'panoramica' | 'tavole' | 'sopralluoghi' | 'documenti' | 'richieste' | 'committenti' | 'team' | 'dati';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'panoramica', label: 'Panoramica' },
+  { key: 'tavole', label: 'Tavole' },
+  { key: 'sopralluoghi', label: 'Sopralluoghi' },
+  { key: 'documenti', label: 'Documenti' },
+  { key: 'richieste', label: 'Richieste di modifica' },
   { key: 'committenti', label: 'Committenti' },
   { key: 'team', label: 'Team e imprese' },
   { key: 'dati', label: 'Dati' },
@@ -30,7 +38,7 @@ const TABS: { key: Tab; label: string }[] = [
 /** Fascicolo della commessa (AFU FR-M1-04): dashboard, committenti, team, dati e stato. */
 @Component({
   selector: 'app-project-detail',
-  imports: [RouterLink, EmptyState, Icon, ProjectContacts, ProjectData, ProjectOverview, ProjectTeam],
+  imports: [RouterLink, EmptyState, Icon, ProjectChangeRequests, ProjectContacts, ProjectData, ProjectDocuments, ProjectDrawings, ProjectOverview, ProjectTeam, ProjectVisits],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
   template: `
@@ -86,6 +94,18 @@ const TABS: { key: Tab; label: string }[] = [
           @if (dashboard.value(); as d) { <app-project-overview [data]="d" (goto)="goto($event)" /> }
           @else if (dashboard.error()) { <div class="card error-box">{{ dashboardError() }} <button class="btn btn-outline btn-sm" (click)="dashboard.reload()">Riprova</button></div> }
           @else { <div class="card skeleton"></div> }
+        }
+        @case ('tavole') {
+          <app-project-drawings [projectId]="p.id" [canManage]="tenant.canManage() && p.status === 'ACTIVE'" (changed)="dashboard.reload()" />
+        }
+        @case ('sopralluoghi') {
+          <app-project-visits [projectId]="p.id" [canStart]="p.status === 'ACTIVE'" />
+        }
+        @case ('documenti') {
+          <app-project-documents [projectId]="p.id" [canManage]="tenant.canManage()" (changed)="dashboard.reload()" />
+        }
+        @case ('richieste') {
+          <app-project-change-requests [projectId]="p.id" [canManage]="canEdit()" (changed)="dashboard.reload()" />
         }
         @case ('committenti') {
           <app-project-contacts [projectId]="p.id" [contacts]="p.contacts" [canManage]="canEdit()" (changed)="reload()" />

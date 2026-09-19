@@ -1,111 +1,271 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, resource, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { ProjectsStore } from '../../core/data/projects-store';
-import { RaiStore } from '../../core/data/rai-store';
-import { fmtNum } from '../../core/data/format';
+import { type Outcome, formatDecimalIt } from '@aph/rai-engine';
+import { toApiError } from '../../core/api/api';
+import { ProjectsApi } from '../../core/api/projects-api';
+import { RaiApi, type RaiRoom, type RaiUnit } from '../../core/api/rai-api';
+import { TenantContext } from '../../core/tenant/tenant-context';
+import { EmptyState } from '../../shared/ui/empty-state';
 import { Icon } from '../../shared/ui/icon';
-import { OutcomeBadge } from '../../shared/ui/outcome-badge';
-import { RaiResults } from './rai-results';
-import { RaiRoomForm } from './rai-room-form';
+import { Toaster } from '../../shared/ui/toast';
 import { val } from '../../shared/dom';
+import { RaiResults } from './rai-results';
+import { ROOM_USE_LABEL, RaiRoomForm } from './rai-room-form';
+import { RaiSnapshots } from './rai-snapshots';
+import { RaiUnitPanel } from './rai-unit-panel';
 
-/** Modulo R.A.I. (AFU FR-M3-03..15): calcolo in tempo reale con il motore condiviso. */
+type Selection = { kind: 'unit' | 'room'; id: string } | null;
+
+/**
+ * Verifica R.A.I. della commessa (AFU Modulo 3): fabbricati, unità e vani salvati sul server,
+ * esiti calcolati dal server con lo stesso motore del client, revisioni immutabili per la relazione.
+ */
 @Component({
   selector: 'app-rai-editor',
-  imports: [RouterLink, Icon, OutcomeBadge, RaiResults, RaiRoomForm],
+  imports: [RouterLink, EmptyState, Icon, RaiResults, RaiRoomForm, RaiSnapshots, RaiUnitPanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
   template: `
-    <a [routerLink]="['/commesse', id()]" class="back muted small"><ui-icon name="chevron-left" [size]="14" /> {{ project()?.code }} · {{ project()?.title }}</a>
+    <a [routerLink]="['/commesse', id()]" class="back muted small"><ui-icon name="chevron-left" [size]="14" /> {{ project.value()?.code }} · {{ project.value()?.title }}</a>
     <div class="head">
-      <div><h1>Verifica R.A.I.</h1><p class="muted">Rapporti aeroilluminanti e requisiti igienico-sanitari, calcolati mentre scrivi.</p></div>
-      <div class="row">
-        <label class="field" style="min-width:300px"><span class="small muted">Profilo normativo</span>
-          <select class="select" [value]="rai.profile().id" (change)="rai.setProfile(val($event))">
-            @for (p of rai.profiles; track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-          </select>
-        </label>
-        <button class="btn btn-primary" [disabled]="!canAttest()"><ui-icon name="file" [size]="15" /> Relazione tecnica</button>
+      <div>
+        <h1>Verifica R.A.I.</h1>
+        <p class="muted small">Rapporti aeroilluminanti e requisiti igienico-sanitari, calcolati sui valori esatti.</p>
       </div>
-    </div>
-
-    <div class="summary card">
-      <div class="sum-item"><span class="eyebrow">Esito unità</span><ui-outcome [outcome]="unit().outcome" /></div>
-      <div class="sum-item"><span class="eyebrow">Sp computabile</span><b class="mono">{{ n(unit().totals.computableArea) }} mq</b></div>
-      <div class="sum-item"><span class="eyebrow">Sup. illuminante</span><b class="mono">{{ n(unit().totals.illuminatingArea) }} mq</b></div>
-      <div class="sum-item"><span class="eyebrow">Sup. aerante</span><b class="mono">{{ n(unit().totals.ventilatingArea) }} mq</b></div>
-      <div class="sum-item"><span class="eyebrow">Vani</span><span class="row" style="gap:6px"><span class="badge badge-success badge-plain">{{ unit().counts.COMPLIANT }}</span><span class="badge badge-danger badge-plain">{{ unit().counts.NON_COMPLIANT }}</span><span class="badge badge-warning badge-plain">{{ unit().counts.SUBJECT_TO_ATTESTATION }}</span></span></div>
-    </div>
-
-    <div class="layout">
-      <aside class="card rooms">
-        <div class="card-header"><h3>Vani</h3><button class="btn btn-ghost btn-sm" (click)="addRoom()"><ui-icon name="plus" [size]="14" /> Vano</button></div>
-        <ul>
-          @for (r of unit().rooms; track r.roomId; let i = $index) {
-            <li [class.is-active]="r.roomId === selectedId()" (click)="selectedId.set(r.roomId)">
-              <span class="dot" [class]="'dot ' + r.outcome"></span>
-              <span class="rt"><b>{{ rooms()[i]?.name }}</b><span class="muted small">{{ n(r.computableArea) }} mq @if (r.ventilating) { · {{ signed(r.ventilating.delta) }} mq }</span></span>
-            </li>
-          }
-        </ul>
-      </aside>
-
-      @if (selectedRoom(); as room) {
-        <section class="card form-col">
-          <app-rai-room-form [projectId]="id()" [room]="room" (removed)="onRemoved()" />
-        </section>
-        <aside class="results-col">
-          @if (selectedResult(); as res) { <app-rai-results [result]="res" [room]="room" /> }
-        </aside>
-      } @else {
-        <section class="card" style="grid-column: span 2; display:grid; place-items:center; padding: 60px" class="muted">Aggiungi il primo vano per iniziare.</section>
+      @if (data.value(); as d) {
+        <div class="row cfg">
+          <label class="field"><span class="small muted">Profilo normativo</span>
+            <select class="select select-sm" [disabled]="readOnly()" (change)="setProfile(val($event))">
+              @for (p of profiles.value() ?? []; track p.versionId) {
+                <option [value]="p.versionId" [selected]="p.versionId === d.profile.versionId">{{ p.name }} (v{{ p.version }}){{ p.isTemplate ? ' · modello' : '' }}</option>
+              }
+            </select></label>
+          <label class="field alt"><span class="small muted">Altitudine (m s.l.m.)</span>
+            <input class="input input-sm mono" type="number" min="-50" max="5000" [disabled]="readOnly()" [value]="d.altitudeM ?? ''" (change)="setAltitude(val($event))" /></label>
+        </div>
       }
     </div>
+
+    @if (data.value(); as d) {
+      <div class="summary">
+        <span class="badge badge-success">{{ d.summary.counts.COMPLIANT }} conformi</span>
+        <span class="badge badge-danger">{{ d.summary.counts.NON_COMPLIANT }} non conformi</span>
+        <span class="badge badge-warning">{{ d.summary.counts.SUBJECT_TO_ATTESTATION }} da asseverare</span>
+        <span class="badge">{{ d.summary.counts.INCOMPLETE + d.summary.counts.INVALID_INPUT }} incompleti</span>
+        @if (deficit()) { <span class="small">Deficit totale <b class="mono">{{ deficit() }} mq</b></span> }
+        @if (reloading()) { <span class="muted small">Ricalcolo…</span> }
+      </div>
+
+      <div class="layout">
+        <aside class="card tree">
+          <div class="card-header"><h3>Struttura</h3>
+            @if (!readOnly()) { <button class="btn btn-ghost btn-sm" (click)="addBuilding()"><ui-icon name="plus" [size]="14" /> Fabbricato</button> }</div>
+          @for (b of d.structure; track b.id) {
+            <div class="bld">
+              <div class="bld-name"><ui-icon name="building" [size]="14" />
+                <input class="inline" [value]="b.name" [disabled]="readOnly()" (change)="renameBuilding(b.id, val($event))" aria-label="Nome del fabbricato" />
+                @if (!readOnly()) { <button class="btn btn-ghost btn-icon" title="Aggiungi unità" (click)="addUnit(b.id, b.units.length)"><ui-icon name="plus" [size]="13" /></button> }
+              </div>
+              @for (u of b.units; track u.id) {
+                <button class="node unit" [class.is-active]="isSel('unit', u.id)" (click)="select('unit', u.id)">{{ u.name }}
+                  <span [class]="'dot ' + unitOutcome(u.id)"></span></button>
+                @for (r of u.rooms; track r.id) {
+                  <button class="node room" [class.is-active]="isSel('room', r.id)" (click)="select('room', r.id)">
+                    <span class="rname">{{ r.name }}</span><span class="muted small">{{ useLabel[r.use] }}</span>
+                    <span [class]="'dot ' + roomOutcome(r.id)"></span></button>
+                }
+                @if (!readOnly()) { <button class="node add" (click)="addRoom(u)"><ui-icon name="plus" [size]="13" /> Vano</button> }
+              } @empty { <p class="muted small pad">Nessuna unità.</p> }
+            </div>
+          } @empty {
+            <div class="pad"><ui-empty icon="building" title="Nessun fabbricato" text="Aggiungi il fabbricato, poi le unità immobiliari e i vani." /></div>
+          }
+        </aside>
+
+        <section class="main">
+          @if (selectedRoom(); as r) {
+            <div class="card"><app-rai-room-form [projectId]="id()" [room]="r" [readOnly]="readOnly()" (changed)="reload()" (removed)="selection.set(null)" /></div>
+          } @else if (selectedUnit(); as u) {
+            <div class="card"><app-rai-unit-panel [projectId]="id()" [unit]="u" [result]="unitResult(u.id)" [profiles]="profiles.value() ?? []"
+              [readOnly]="readOnly()" (changed)="reload()" (removed)="selection.set(null)" /></div>
+          } @else {
+            <div class="card"><ui-empty icon="ruler" title="Seleziona un vano" text="Scegli un vano nella struttura per inserire superficie, altezza e aperture: l'esito si aggiorna subito." /></div>
+          }
+        </section>
+
+        <aside class="side">
+          @if (selectedRoom(); as r) {
+            @if (roomCalc(r.id); as calc) { <app-rai-results [room]="calc.input" [result]="calc.result" /> }
+          }
+          <app-rai-snapshots [projectId]="id()" [canEmit]="!readOnly()" />
+          <p class="muted small">Profilo applicato: {{ d.profile.name }} v{{ d.profile.version }}</p>
+        </aside>
+      </div>
+    } @else if (data.error()) {
+      <div class="card error-box">{{ errorText() }} <button class="btn btn-outline btn-sm" (click)="data.reload()">Riprova</button></div>
+    } @else { <div class="card skeleton"></div> }
   `,
   styles: `
     .back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 10px; }
-    .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .summary { display: grid; grid-template-columns: repeat(5, 1fr); padding: 14px 20px; margin-bottom: 16px; }
-    .sum-item { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid var(--line); padding-right: 16px; margin-right: 16px; }
-    .sum-item:last-child { border: 0; }
-    .layout { display: grid; grid-template-columns: 250px minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
-    .rooms ul { list-style: none; margin: 0; padding: 6px; }
-    .rooms li { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
-    .rooms li:hover { background: var(--surface-2); }
-    .rooms li.is-active { background: var(--primary-soft); }
-    .rt { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
-    .rt b { font-weight: 500; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); flex: none; }
-    .dot.COMPLIANT { background: var(--success); } .dot.NON_COMPLIANT { background: var(--danger); } .dot.SUBJECT_TO_ATTESTATION { background: var(--warning); } .dot.INCOMPLETE { background: var(--muted); }
-    .results-col { position: sticky; top: calc(var(--topbar-h) + 20px); }
-    @media (max-width: 1200px) { .layout { grid-template-columns: 220px 1fr; } .results-col { grid-column: span 2; position: static; } .summary { grid-template-columns: repeat(3, 1fr); gap: 12px; } .sum-item { border: 0; } }
-    @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .results-col { grid-column: auto; } }
+    .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+    .cfg { gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+    .cfg .field { display: grid; gap: 4px; }
+    .alt input { width: 110px; }
+    .summary { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+    .tree { position: sticky; top: calc(var(--topbar-h) + 12px); max-height: calc(100vh - var(--topbar-h) - 40px); overflow: auto; }
+    .bld { padding: 6px 8px 10px; border-bottom: 1px solid var(--line); }
+    .bld-name { display: flex; gap: 6px; align-items: center; font-weight: 600; padding: 4px; }
+    .inline { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; color: inherit; outline: 0; }
+    .node { display: flex; gap: 6px; align-items: center; width: 100%; text-align: left; border: 0; background: none; font: inherit; color: inherit; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+    .node:hover { background: var(--surface-2); }
+    .node.is-active { background: var(--primary-soft); color: var(--color-primary); }
+    .node.unit { font-weight: 500; }
+    .node.room { padding-left: 22px; }
+    .node.add { padding-left: 22px; color: var(--color-primary); font-size: 13px; }
+    .rname { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .node .small { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; margin-left: auto; flex: none; background: var(--line-strong); }
+    .dot.COMPLIANT { background: var(--success); } .dot.NON_COMPLIANT, .dot.INVALID_INPUT { background: var(--danger); }
+    .dot.SUBJECT_TO_ATTESTATION { background: var(--warning); } .dot.NOT_REQUIRED { background: #cbd5e1; }
+    .pad { padding: 10px; }
+    .side { display: grid; gap: 14px; }
+    .skeleton { height: 50vh; }
+    .error-box { padding: 20px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+    @media (max-width: 1280px) { .layout { grid-template-columns: 240px minmax(0, 1fr); } .side { grid-column: 1 / -1; } }
+    @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .tree { position: static; max-height: none; } }
   `,
 })
 export class RaiEditor {
   readonly id = input.required<string>();
-  protected readonly rai = inject(RaiStore);
-  private readonly store = inject(ProjectsStore);
+  private readonly api = inject(RaiApi);
+  private readonly projectsApi = inject(ProjectsApi);
+  private readonly tenant = inject(TenantContext);
+  private readonly toaster = inject(Toaster);
   protected readonly val = val;
-  protected readonly n = fmtNum;
+  protected readonly useLabel = ROOM_USE_LABEL;
 
-  protected readonly project = computed(() => this.store.projects().find((p) => p.id === this.id()) ?? null);
-  protected readonly rooms = computed(() => this.rai.roomsOf(this.id())());
-  protected readonly unit = computed(() => this.rai.evaluation(this.id())());
-  protected readonly selectedId = linkedSignal<string | null>(() => this.rooms()[0]?.id ?? null);
-  protected readonly selectedRoom = computed(() => this.rooms().find((r) => r.id === this.selectedId()) ?? null);
-  protected readonly selectedResult = computed(() => this.unit().rooms.find((r) => r.roomId === this.selectedId()) ?? null);
-  protected readonly canAttest = computed(() => ['COMPLIANT', 'SUBJECT_TO_ATTESTATION'].includes(this.unit().outcome));
+  protected readonly project = resource({ params: () => this.id(), loader: ({ params }) => this.projectsApi.detail(params) });
+  protected readonly data = resource({ params: () => this.id(), loader: ({ params }) => this.api.load(params) });
+  protected readonly profiles = resource({ loader: () => this.api.profiles() });
+  protected readonly selection = signal<Selection>(null);
 
-  protected signed(v: string): string {
-    return (v.startsWith('-') ? '' : '+') + fmtNum(v);
+  protected readonly readOnly = computed(() => !this.tenant.canManage() || this.project.value()?.status !== 'ACTIVE');
+  protected readonly reloading = computed(() => this.data.isLoading() && this.data.hasValue());
+  protected readonly errorText = computed(() => toApiError(this.data.error()).userMessage);
+  protected readonly deficit = computed(() => {
+    const v = this.data.value()?.summary.deficitSqm ?? '0';
+    return Number(v) > 0 ? formatDecimalIt(v, 2) : null;
+  });
+
+  private readonly units = computed<RaiUnit[]>(() => (this.data.value()?.structure ?? []).flatMap((b) => b.units));
+  private readonly rooms = computed<RaiRoom[]>(() => this.units().flatMap((u) => u.rooms));
+  private readonly calcUnits = computed(() => (this.data.value()?.buildings ?? []).flatMap((b) => b.units));
+
+  protected readonly selectedRoom = computed(() => {
+    const s = this.selection();
+    return s?.kind === 'room' ? (this.rooms().find((r) => r.id === s.id) ?? null) : null;
+  });
+  protected readonly selectedUnit = computed(() => {
+    const s = this.selection();
+    return s?.kind === 'unit' ? (this.units().find((u) => u.id === s.id) ?? null) : null;
+  });
+
+  protected isSel(kind: 'unit' | 'room', id: string): boolean {
+    const s = this.selection();
+    return s?.kind === kind && s.id === id;
   }
 
-  protected addRoom(): void {
-    this.selectedId.set(this.rai.addRoom(this.id()));
+  protected select(kind: 'unit' | 'room', id: string): void {
+    this.selection.set({ kind, id });
   }
 
-  protected onRemoved(): void {
-    this.selectedId.set(this.rooms()[0]?.id ?? null);
+  protected unitResult(unitId: string) {
+    return this.calcUnits().find((u) => u.id === unitId)?.result ?? null;
+  }
+
+  protected unitOutcome(unitId: string): Outcome | '' {
+    return this.unitResult(unitId)?.outcome ?? '';
+  }
+
+  protected roomOutcome(roomId: string): Outcome | '' {
+    for (const u of this.calcUnits()) {
+      const r = u.result.rooms.find((x) => x.roomId === roomId);
+      if (r) return r.outcome;
+    }
+    return '';
+  }
+
+  /** Input del motore ed esito del vano, per il pannello dei risultati. */
+  protected roomCalc(roomId: string) {
+    for (const u of this.calcUnits()) {
+      const result = u.result.rooms.find((x) => x.roomId === roomId);
+      const input = u.input.rooms.find((x) => x.id === roomId);
+      if (result && input) return { result, input };
+    }
+    return null;
+  }
+
+  reload(): void {
+    this.data.reload();
+  }
+
+  protected async addBuilding(): Promise<void> {
+    const n = (this.data.value()?.structure.length ?? 0) + 1;
+    await this.run(async () => {
+      const b = await this.api.createBuilding(this.id(), { name: n === 1 ? 'Edificio' : `Edificio ${n}` });
+      const u = await this.api.createUnit(this.id(), b.id, { name: 'Unità 1' });
+      this.selection.set({ kind: 'unit', id: u.id });
+    });
+  }
+
+  protected async addUnit(buildingId: string, count: number): Promise<void> {
+    await this.run(async () => {
+      const u = await this.api.createUnit(this.id(), buildingId, { name: `Unità ${count + 1}` });
+      this.selection.set({ kind: 'unit', id: u.id });
+    });
+  }
+
+  protected async addRoom(unit: RaiUnit): Promise<void> {
+    await this.run(async () => {
+      const r = await this.api.createRoom(this.id(), unit.id, {
+        name: `Vano ${unit.rooms.length + 1}`, use: 'LIVING_ROOM', floorArea: '14', ceiling: { type: 'FLAT', height: '2.70' },
+      });
+      this.selection.set({ kind: 'room', id: r.id });
+    });
+  }
+
+  protected async renameBuilding(buildingId: string, name: string): Promise<void> {
+    if (!name.trim()) return;
+    await this.run(() => this.api.updateBuilding(this.id(), buildingId, { name: name.trim() }));
+  }
+
+  protected async setProfile(versionId: string): Promise<void> {
+    await this.updateProject({ regulationProfileVersionId: versionId });
+  }
+
+  protected async setAltitude(value: string): Promise<void> {
+    const n = value.trim() === '' ? null : Math.round(Number(value));
+    if (n !== null && !Number.isFinite(n)) return;
+    await this.updateProject({ altitudeM: n });
+  }
+
+  private async updateProject(patch: { regulationProfileVersionId?: string | null; altitudeM?: number | null }): Promise<void> {
+    const p = this.project.value();
+    if (!p) return;
+    await this.run(async () => {
+      await this.projectsApi.update(p.id, { ...patch, version: p.version });
+      this.project.reload();
+      this.toaster.show('Impostazioni del calcolo aggiornate');
+    });
+  }
+
+  private async run(action: () => Promise<unknown>): Promise<void> {
+    try {
+      await action();
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    }
+    this.data.reload();
   }
 }

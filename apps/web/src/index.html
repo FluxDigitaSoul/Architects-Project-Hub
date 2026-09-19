@@ -6,7 +6,15 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f172a" />
-    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- Il token del Magic Link non deve mai uscire verso altri siti (FR-M1-05, NFR-SEC). -->
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="favicon.ico" />
+    <!-- PWA installabile per il cantiere (AFU FR-M4-01) -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Project Hub" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

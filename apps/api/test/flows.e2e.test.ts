@@ -9,6 +9,9 @@ import type { INestApplication } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { JobsService } from '../src/automation/jobs.service';
+import { GROUP_WINDOW_MS, NotificationsService } from '../src/automation/notifications.service';
+import { addDays, localDate } from '../src/automation/time';
 import { createApp } from '../src/bootstrap';
 import { type LogMailer, Mailer } from '../src/mail/mailer';
 import {
@@ -90,7 +93,10 @@ describe.skipIf(!e2eEnabled)('Flussi della Beta (cloud)', () => {
     const done = await studio('post', `${p()}/drawings/${state.drawingId}/versions/${start.body.versionId}/complete`).expect(200);
     expect(done.body).toMatchObject({ status: 'DRAFT', pageCount: 2 });
     state.versionId = start.body.versionId;
-    const pub = await studio('post', `${p()}/publish`).send({ versionIds: [state.versionId], message: 'Prima emissione' }).expect(200);
+    // Scadenza tra due giorni: il job dei promemoria la trova già oggi (FR-M2-05).
+    state.dueDate = addDays(localDate(new Date()), 2);
+    const pub = await studio('post', `${p()}/publish`)
+      .send({ versionIds: [state.versionId], message: 'Prima emissione', reviewDueDate: state.dueDate }).expect(200);
     expect(pub.body).toEqual({ published: 1, notified: 1 });
   }, 90_000);
 
@@ -115,6 +121,42 @@ describe.skipIf(!e2eEnabled)('Flussi della Beta (cloud)', () => {
     expect(view.body.pins[0].status).toBe('OPEN');
     const out = await portal('post', `/versions/${state.versionId}/pins`).send({ pageIndex: 0, x: 120, y: 10, body: 'fuori' }).expect(400);
     expect(out.body.error.code).toBe('VALIDATION_FAILED');
+  }, 60_000);
+
+  it('raggruppa le notifiche della revisione in una sola email per destinatario (FR-MT-06, AC-FR-MT-06-1)', async () => {
+    const notifications = app.get(NotificationsService);
+    const tenantId = tenants[0]!;
+    // Nella finestra di 10 minuti non parte nulla.
+    expect(await notifications.flushTenant(tenantId, new Date())).toEqual({ sent: 0, skipped: 0, failed: 0 });
+    const before = outbox.length;
+    const later = new Date(Date.now() + GROUP_WINDOW_MS + 60_000);
+    expect(await notifications.flushTenant(tenantId, later)).toEqual({ sent: 2, skipped: 0, failed: 0 });
+    const mails = outbox.slice(before);
+    const toStudio = mails.find((m) => m.to.includes(owner.email));
+    expect(toStudio?.subject).toMatch(/2 novità dalla revisione$/);
+    expect(toStudio?.text).toContain('Spostare la porta?');
+    expect(toStudio?.text).toContain('Perfetto, grazie.');
+    const toClient = mails.find((m) => m.to.includes(clientEmail));
+    expect(toClient?.text).toContain('Sì, la spostiamo di 40 cm.');
+    expect(toClient?.text).toContain('/portale/tavole/');
+    // Nessun doppione al giro successivo.
+    expect(await notifications.flushTenant(tenantId, later)).toEqual({ sent: 0, skipped: 0, failed: 0 });
+  }, 60_000);
+
+  it('manda il promemoria di revisione una sola volta e non approva nulla (FR-M2-05, BR-19)', async () => {
+    const jobs = app.get(JobsService);
+    const before = outbox.length;
+    const first = await jobs.reviewReminders(new Date());
+    expect(first.queued).toBeGreaterThanOrEqual(1);
+    const reminder = outbox.slice(before).find((m) => m.to.includes(clientEmail));
+    expect(reminder?.subject).toMatch(/promemoria: revisione in scadenza$/);
+    expect(reminder?.text).toContain(`${state.dueDate!.slice(8, 10)}/${state.dueDate!.slice(5, 7)}/${state.dueDate!.slice(0, 4)}`);
+    expect(reminder?.text).toContain('nessun elaborato viene approvato in automatico');
+    const again = outbox.length;
+    await jobs.reviewReminders(new Date());
+    expect(outbox.slice(again).some((m) => m.to.includes(clientEmail))).toBe(false);
+    const view = await portal('get', `/versions/${state.versionId}`).expect(200);
+    expect(view.body.version.status).toBe('PUBLISHED');
   }, 60_000);
 
   it('approva con OTP, congela la versione e invia il riepilogo (BR-01, BR-10, FR-M5-10)', async () => {

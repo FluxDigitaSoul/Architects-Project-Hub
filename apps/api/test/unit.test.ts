@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { JobsController } from '../src/automation/jobs.controller';
+import type { JobsService } from '../src/automation/jobs.service';
+import { addDays, formatDateIt, localDate, nextDailySlot, zonedToUtc } from '../src/automation/time';
 import { EnvValidationError, parseEnv } from '../src/config/env';
 import { slugFromRequest } from '../src/tenancy/tenancy';
 
@@ -33,5 +36,39 @@ describe('slugFromRequest', () => {
   it('rejects reserved or malformed slugs', () => {
     expect(slugFromRequest('api.projecthub.it', undefined, 'projecthub.it')).toBeNull();
     expect(slugFromRequest('localhost', 'x', 'projecthub.it')).toBeNull();
+  });
+});
+
+describe('orari degli studi (Europe/Rome)', () => {
+  it('converte ora locale in UTC con e senza ora legale', () => {
+    expect(zonedToUtc('2026-07-15', 18).toISOString()).toBe('2026-07-15T16:00:00.000Z');
+    expect(zonedToUtc('2026-12-15', 18).toISOString()).toBe('2026-12-15T17:00:00.000Z');
+  });
+
+  it('usa il giorno locale e non quello UTC', () => {
+    expect(localDate(new Date('2026-09-19T22:30:00Z'))).toBe('2026-09-20');
+    expect(addDays('2026-02-27', 2)).toBe('2026-03-01');
+    expect(formatDateIt('2026-09-21')).toBe('21/09/2026');
+  });
+
+  it('fissa il riepilogo giornaliero alle 18 di oggi o di domani', () => {
+    expect(nextDailySlot(new Date('2026-09-19T10:00:00Z'), 18).toISOString()).toBe('2026-09-19T16:00:00.000Z');
+    expect(nextDailySlot(new Date('2026-09-19T17:00:00Z'), 18).toISOString()).toBe('2026-09-20T16:00:00.000Z');
+  });
+});
+
+describe('JobsController', () => {
+  const jobs = { find: () => undefined } as unknown as JobsService;
+  const env = (secret?: string) => parseEnv({ ...VALID, ...(secret ? { JOBS_SECRET: secret } : {}) });
+
+  it('non esiste senza JOBS_SECRET', () => {
+    expect(() => new JobsController(jobs, env()).run('notifications', 'Bearer x')).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
+
+  it('rifiuta un segreto sbagliato', () => {
+    const controller = new JobsController(jobs, env('s'.repeat(40)));
+    expect(() => controller.run('notifications', 'Bearer sbagliato')).toThrow(expect.objectContaining({ code: 'UNAUTHENTICATED' }));
+    expect(() => controller.run('notifications', undefined)).toThrow(expect.objectContaining({ code: 'UNAUTHENTICATED' }));
+    expect(() => controller.run('nessuno', `Bearer ${'s'.repeat(40)}`)).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
   });
 });

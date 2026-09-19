@@ -41,6 +41,7 @@ export const studioSettingsSchema = z.object({
   codePattern: z.string().trim().refine(isValidProjectCodePattern, 'Pattern non valido: usa {YYYY} o {YY} e un solo {NNN}'),
   graceDays: z.number().int().min(0).max(365),
   requireOtpNewDevice: z.boolean(),
+  audioRetentionDays: z.number().int().min(7).max(3650),
 }).partial();
 
 /** FR-M0-04/05 e FR-M5-00/20: aspetto e testi dei documenti. */
@@ -61,6 +62,8 @@ export const myProfileSchema = z.object({
   professionalOrder: z.string().trim().max(120).nullable(),
   registrationNumber: z.string().trim().max(30).nullable(),
   registrationSection: z.string().trim().max(30).nullable(),
+  /** FR-MT-06: GROUPED = email raggruppate ogni 10 minuti, DAILY = riepilogo giornaliero, OFF = nessuna. */
+  notificationMode: z.enum(['GROUPED', 'DAILY', 'OFF']),
 }).partial();
 
 export const inviteSchema = z.object({
@@ -177,11 +180,12 @@ export class SettingsService {
 
   async myProfile(tx: Tx, scope: StudioScope) {
     const u = await tx.selectFrom('user_profiles').selectAll().where('id', '=', scope.userId).executeTakeFirstOrThrow();
-    const m = await tx.selectFrom('memberships').select(['role', 'professional_order', 'registration_number', 'registration_section'])
+    const m = await tx.selectFrom('memberships').select(['role', 'professional_order', 'registration_number', 'registration_section', 'notification_mode'])
       .where('id', '=', scope.membershipId).executeTakeFirstOrThrow();
     return {
       email: u.email, firstName: u.first_name, lastName: u.last_name, title: u.title, phone: u.phone, role: m.role,
       professionalOrder: m.professional_order, registrationNumber: m.registration_number, registrationSection: m.registration_section,
+      notificationMode: m.notification_mode,
       canSign: m.role !== 'COLLABORATOR' && Boolean(m.professional_order && m.registration_number),
     };
   }
@@ -197,6 +201,7 @@ export class SettingsService {
       ...(input.professionalOrder !== undefined ? { professional_order: input.professionalOrder } : {}),
       ...(input.registrationNumber !== undefined ? { registration_number: input.registrationNumber } : {}),
       ...(input.registrationSection !== undefined ? { registration_section: input.registrationSection } : {}),
+      ...(input.notificationMode !== undefined ? { notification_mode: input.notificationMode } : {}),
     };
     if (Object.keys(userPatch).length) await tx.updateTable('user_profiles').set(userPatch).where('id', '=', scope.userId).execute();
     if (Object.keys(memberPatch).length) await tx.updateTable('memberships').set(memberPatch).where('id', '=', scope.membershipId).execute();
@@ -254,6 +259,14 @@ export class SettingsService {
     assertUuid(membershipId, 'Membro');
     const m = await tx.selectFrom('memberships').select(['id', 'status']).where('id', '=', membershipId).executeTakeFirst();
     if (!m) throw new AppError('NOT_FOUND', 'Membro non trovato.');
+    if (m.status === 'INVITED' && input.status && input.status !== 'REMOVED') {
+      throw new AppError('INVALID_TRANSITION', 'L’invito diventa attivo solo quando la persona lo accetta: puoi solo revocarlo.');
+    }
+    if (m.status === 'SUSPENDED' && input.status === 'ACTIVE') {
+      const { n } = await tx.selectFrom('memberships').select((eb) => eb.fn.countAll<string>().as('n'))
+        .where('status', 'in', ['ACTIVE', 'INVITED']).executeTakeFirstOrThrow();
+      await this.entitlements.assertLimit(tx, 'seats.max', Number(n));
+    }
     if (m.status === 'INVITED' && input.status === 'REMOVED') {
       await tx.deleteFrom('memberships').where('id', '=', m.id).execute();
     } else {

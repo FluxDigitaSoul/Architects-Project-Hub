@@ -1,5 +1,6 @@
 import { inject } from '@angular/core';
 import { type CanActivateFn, Router } from '@angular/router';
+import { toApiError } from '../api/api';
 import { TenantContext } from '../tenant/tenant-context';
 import { Auth } from './auth';
 
@@ -22,7 +23,11 @@ export const authGuard: CanActivateFn = async (route) => {
     // Più studi e nessuno ricordato: si apre il primo, poi si cambia dal menu (FR-MT-03).
     if (!tenant.isConfigured()) await tenant.select(first.slug);
     return true;
-  } catch {
+  } catch (e) {
+    const err = toApiError(e);
+    // Senza rete e senza copia locale dello studio la sessione resta valida: la pagina mostra
+    // "Connessione non disponibile" e si riprova al ritorno della rete (FR-M4-14).
+    if (err.status === 0 || err.status >= 500) return true;
     // Token scaduto o revocato: si torna al login con uno stato pulito.
     tenant.reset();
     await auth.logout();

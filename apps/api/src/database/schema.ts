@@ -48,6 +48,8 @@ export interface TenantSettings {
   codePattern: string;
   graceDays: number;
   requireOtpNewDevice: boolean;
+  /** PRIV-03: giorni di conservazione dell'audio grezzo dopo la finalizzazione (predefinito 90). */
+  audioRetentionDays?: number;
 }
 
 export interface TenantsTable {
@@ -107,6 +109,7 @@ export interface MembershipsTable {
   registration_number: string | null;
   registration_section: string | null;
   signature_image_key: string | null;
+  notification_mode: Generated<'GROUPED' | 'DAILY' | 'OFF'>;
   created_at: Timestamp;
   updated_at: Timestamp;
   version: Generated<number>;
@@ -237,6 +240,24 @@ export interface NotificationsTable {
   read_at: NullableTimestamp;
   created_at: Timestamp;
   sent_at: NullableTimestamp;
+  send_after: Timestamp;
+  attempts: Generated<number>;
+  last_error: string | null;
+  dedupe_key: string | null;
+}
+
+export type NotificationMode = 'GROUPED' | 'DAILY' | 'OFF';
+
+/** Esecuzioni dei job pianificati (dati di piattaforma, migrazione 20260919000100). */
+export interface JobRunsTable {
+  id: Generated<string>;
+  job: string;
+  status: Generated<'RUNNING' | 'DONE' | 'FAILED'>;
+  trigger: 'SCHEDULER' | 'HTTP';
+  started_at: Timestamp;
+  finished_at: NullableTimestamp;
+  stats: JsonWithDefault<Record<string, unknown>>;
+  error: string | null;
 }
 
 export interface JobsTable {
@@ -302,4 +323,5 @@ export interface Database {
   document_deliveries: DocumentDeliveriesTable;
   notifications: NotificationsTable;
   jobs: JobsTable;
+  job_runs: JobRunsTable;
 }

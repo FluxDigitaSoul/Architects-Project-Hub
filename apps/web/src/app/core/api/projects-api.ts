@@ -229,6 +229,10 @@ export interface ProjectFields {
   endDate?: string | null;
   cadastral?: Cadastral[];
   tags?: string[];
+  /** Altitudine [m s.l.m.]: sopra la soglia del profilo si applicano le altezze montane (FR-M3-01). */
+  altitudeM?: number | null;
+  /** Profilo normativo della commessa per il calcolo R.A.I. (null = predefinito). */
+  regulationProfileVersionId?: string | null;
 }
 
 export interface CreateProjectInput extends ProjectFields {

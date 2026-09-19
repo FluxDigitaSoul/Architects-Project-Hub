@@ -95,6 +95,7 @@ export interface ClientContactsTable {
   portal_enabled: Generated<boolean>;
   privacy_acknowledged_at: NullableTimestamp;
   email_status: Generated<'OK' | 'BOUNCED'>;
+  notification_mode: Generated<'GROUPED' | 'DAILY' | 'OFF'>;
   removed_at: NullableTimestamp;
   created_at: Timestamp;
   updated_at: Timestamp;

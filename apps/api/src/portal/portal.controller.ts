@@ -12,7 +12,7 @@ import { DocumentsService } from '../documents/documents.service';
 import { DrawingsService } from '../review/drawings.service';
 import { FileStorage } from '../storage/file-storage';
 import { PinsService, type ReviewActor } from '../review/pins.service';
-import { SignoffService } from '../review/signoff.service';
+import { DECLARATION_VERSION, SignoffService, declarationText } from '../review/signoff.service';
 import { MagicLinkService, loadStudioIdentity } from './magic-link.service';
 import { CurrentPortal, type PortalContext, PortalGuard, PortalSessionService } from './portal-session';
 
@@ -90,17 +90,20 @@ export class PortalController {
   private async context(tx: Tx, portal: PortalContext) {
     const project = await tx.selectFrom('projects').select(['id', 'code', 'title', 'status', 'site_address', 'municipality', 'permit_type'])
       .where('id', '=', portal.projectId).executeTakeFirstOrThrow();
-    const contact = await tx.selectFrom('client_contacts').select(['display_name', 'is_signer', 'privacy_acknowledged_at'])
+    const contact = await tx.selectFrom('client_contacts').select(['display_name', 'is_signer', 'privacy_acknowledged_at', 'notification_mode'])
       .where('id', '=', portal.contactId).executeTakeFirstOrThrow();
     const tenant = await tx.selectFrom('tenants as t').leftJoin('tenant_branding as b', 'b.tenant_id', 't.id')
       .select(['t.name', 't.slug', 't.email', 't.phone', 'b.primary_color', 'b.secondary_color', 'b.portal_theme', 'b.logo_keys'])
       .where('t.id', '=', portal.tenantId).executeTakeFirstOrThrow();
     const street = `${project.site_address.street}${project.site_address.number ? ` ${project.site_address.number}` : ''}`;
+    // NFR-BRAND-01: il portale mostra il logo dello studio (URL firmato a tempo, niente bucket pubblico).
+    const logoKey = tenant.logo_keys?.['primary'] ?? null;
+    const logoUrl = logoKey ? await this.storage.createDownloadUrl(logoKey, 3600).catch(() => null) : null;
     return {
       studio: {
         name: tenant.name, slug: tenant.slug, email: tenant.email, phone: tenant.phone,
         primaryColor: tenant.primary_color ?? '#1F2937', secondaryColor: tenant.secondary_color,
-        portalTheme: tenant.portal_theme ?? 'LIGHT', hasLogo: Boolean(tenant.logo_keys && Object.keys(tenant.logo_keys).length),
+        portalTheme: tenant.portal_theme ?? 'LIGHT', hasLogo: Boolean(logoKey), logoUrl,
       },
       project: {
         id: project.id, code: project.code, title: project.title, status: project.status,
@@ -108,6 +111,7 @@ export class PortalController {
       },
       contact: {
         name: contact.display_name, isSigner: contact.is_signer, privacyAcknowledged: Boolean(contact.privacy_acknowledged_at),
+        notificationMode: contact.notification_mode,
       },
       readOnly: project.status !== 'ACTIVE',
     };
@@ -127,6 +131,26 @@ export class PortalController {
           objectType: 'CLIENT_CONTACT', objectId: portal.contactId, meta,
         });
       }
+    });
+  }
+
+  /** FR-M2-12 / FR-MT-06: il committente sceglie tra avvisi raggruppati, riepilogo giornaliero o nessuno. */
+  @Patch('preferences')
+  @HttpCode(204)
+  @UseGuards(PortalGuard)
+  async preferences(@CurrentPortal() portal: PortalContext, @Body() b: unknown, @Meta() meta: RequestMeta) {
+    const input = parseBody(z.object({ notificationMode: z.enum(['GROUPED', 'DAILY', 'OFF']) }), b);
+    await this.sessions.withPortal(portal, async (tx) => {
+      await tx.updateTable('client_contacts').set({ notification_mode: input.notificationMode }).where('id', '=', portal.contactId).execute();
+      // Le notifiche già in coda seguono la nuova scelta: con OFF non partono.
+      if (input.notificationMode === 'OFF') {
+        await tx.updateTable('notifications').set({ status: 'SKIPPED' })
+          .where('recipient_type', '=', 'CLIENT').where('recipient_id', '=', portal.contactId).where('status', '=', 'PENDING').execute();
+      }
+      await this.audit.record(tx, {
+        tenantId: portal.tenantId, actorType: 'CLIENT', actorId: portal.contactId, action: 'NOTIFICATION_PREFERENCES_UPDATED',
+        objectType: 'CLIENT_CONTACT', objectId: portal.contactId, details: input, meta,
+      });
     });
   }
 
@@ -257,6 +281,30 @@ export class PortalController {
   }
 
   // ---- Approvazione (FR-M2-15) e richieste di modifica (FR-M2-17) ------------------------------
+
+  /**
+   * FR-M2-15: dati per la finestra di approvazione. Il testo della dichiarazione è quello che
+   * il server registrerà: il committente legge esattamente ciò che accetta.
+   */
+  @Get('versions/:versionId/sign-off')
+  @UseGuards(PortalGuard)
+  signOffInfo(@CurrentPortal() portal: PortalContext, @Param('versionId') versionId: string) {
+    return this.sessions.withPortal(portal, async (tx) => {
+      const version = await this.pins.loadVersion(tx, actorOf(portal), versionId);
+      const contact = await tx.selectFrom('client_contacts').select(['display_name', 'is_signer'])
+        .where('id', '=', portal.contactId).executeTakeFirstOrThrow();
+      const project = await tx.selectFrom('projects').select('status').where('id', '=', portal.projectId).executeTakeFirstOrThrow();
+      const { n } = await tx.selectFrom('pins').select((eb) => eb.fn.countAll<string>().as('n'))
+        .where('version_id', '=', version.id).where('status', 'in', ['OPEN', 'WAITING']).executeTakeFirstOrThrow();
+      return {
+        canApprove: contact.is_signer && version.status === 'PUBLISHED' && project.status === 'ACTIVE',
+        isSigner: contact.is_signer,
+        openPins: Number(n),
+        declarationText: declarationText(contact.display_name, version.title, version.number),
+        declarationVersion: DECLARATION_VERSION,
+      };
+    });
+  }
 
   @Post('otp')
   @HttpCode(201)

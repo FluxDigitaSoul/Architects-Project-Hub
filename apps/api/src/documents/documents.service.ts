@@ -95,6 +95,12 @@ export class DocumentsService {
       .where('type', '=', type).where('status', 'in', ['FINAL', 'SIGNED']).executeTakeFirst();
   }
 
+  /** Testi dei documenti impostati dallo studio (FR-M0-05); la RLS limita la riga al tenant corrente. */
+  private async documentTexts(tx: Tx): Promise<{ attestationTemplate?: string; closingFormula?: string }> {
+    const branding = await tx.selectFrom('tenant_branding').select('document_settings').executeTakeFirst();
+    return (branding?.document_settings ?? {}) as { attestationTemplate?: string; closingFormula?: string };
+  }
+
   /** FR-M5-01: verbale di sopralluogo, firmato dal DL (BR-08). */
   async generateSiteReport(tx: Tx, scope: StudioScope, projectId: string, visitId: string, meta: RequestMeta) {
     const project = await loadVisibleProject(tx, scope, projectId);
@@ -103,7 +109,7 @@ export class DocumentsService {
     if (!visit) throw new AppError('NOT_FOUND', 'Sopralluogo non trovato.');
     const found = await this.existing(tx, 'SITE_VISIT', visit.id, 'SITE_REPORT');
     if (found) return { id: found.id, existing: true };
-    const src = await this.data.siteReport(tx, visit.id);
+    const src = await this.data.siteReport(tx, visit.id, (await this.documentTexts(tx)).closingFormula ?? null);
     await this.data.assertQualifiedSigner(tx, src.directorMembershipId);
     const letterhead = await this.data.letterhead(tx, scope.tenantId);
     return this.store(tx, scope.tenantId, scope.userId, {
@@ -129,9 +135,7 @@ export class DocumentsService {
       if (found) return { id: found.id, existing: true };
     }
     const signer = attestation ? await this.data.assertQualifiedSigner(tx, scope.membershipId) : await this.data.signer(tx, scope.membershipId);
-    const branding = await tx.selectFrom('tenant_branding').select('document_settings').executeTakeFirst();
-    const template = (branding?.document_settings as { attestationTemplate?: string } | undefined)?.attestationTemplate ?? null;
-    const src = await this.data.raiReport(tx, snapshot.id, variant, signer, template);
+    const src = await this.data.raiReport(tx, snapshot.id, variant, signer, (await this.documentTexts(tx)).attestationTemplate ?? null);
     if (attestation) {
       const blocking = blockingRooms(src.data);
       if (blocking.length) {
@@ -184,6 +188,30 @@ export class DocumentsService {
     const project = await loadVisibleProject(tx, scope, projectId);
     const rows = await tx.selectFrom('documents').selectAll().where('project_id', '=', project.id).orderBy('created_at', 'desc').execute();
     return rows.map((d) => this.dto(d));
+  }
+
+  /**
+   * Archivio documentale dello studio (FR-M5-06): documenti di tutte le commesse visibili,
+   * con filtri per tipo, stato e ricerca su titolo, numero o commessa. I Collaboratori vedono solo le assegnate.
+   */
+  async listStudio(tx: Tx, scope: StudioScope, filter: { type?: string; status?: string; q?: string }) {
+    let query = tx.selectFrom('documents as d').innerJoin('projects as p', 'p.id', 'd.project_id')
+      .selectAll('d').select(['p.code as project_code', 'p.title as project_title'])
+      .where('p.status', '<>', 'ARCHIVED');
+    if (scope.role === 'COLLABORATOR') {
+      query = query.where((eb) => eb.exists(
+        eb.selectFrom('project_assignments as pa').select('pa.id').whereRef('pa.project_id', '=', 'p.id')
+          .where('pa.membership_id', '=', scope.membershipId).where('pa.valid_to', 'is', null),
+      ));
+    }
+    if (filter.type) query = query.where('d.type', '=', filter.type as DocRow['type']);
+    if (filter.status) query = query.where('d.status', '=', filter.status as DocRow['status']);
+    if (filter.q) {
+      const like = `%${filter.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+      query = query.where((eb) => eb.or([eb('d.title', 'ilike', like), eb('d.number', 'ilike', like), eb('p.code', 'ilike', like), eb('p.title', 'ilike', like)]));
+    }
+    const rows = await query.orderBy('d.created_at', 'desc').limit(200).execute();
+    return rows.map((r) => ({ ...this.dto(r), projectId: r.project_id, projectCode: r.project_code, projectTitle: r.project_title }));
   }
 
   async load(tx: Tx, projectId: string, documentId: string) {

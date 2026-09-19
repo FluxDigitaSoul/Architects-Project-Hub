@@ -156,6 +156,8 @@ export class FieldService {
     const pendingActions = await this.openActions(tx, project.id, visit.number);
     const photoUrls = await Promise.all(photos.map((p) =>
       p.upload_status === 'UPLOADED' && p.file_key ? this.storage.createDownloadUrl(p.file_key, 600) : Promise.resolve(null)));
+    const audioUrls = await Promise.all(audio.map((a) =>
+      a.upload_status === 'UPLOADED' && a.file_key ? this.storage.createDownloadUrl(a.file_key, 600) : Promise.resolve(null)));
     return {
       id: visit.id, number: visit.number, visitType: visit.visit_type, status: visit.status,
       startedAt: new Date(visit.started_at).toISOString(), endedAt: visit.ended_at ? new Date(visit.ended_at).toISOString() : null,
@@ -166,7 +168,10 @@ export class FieldService {
         id: p.id, uploadStatus: p.upload_status, url: photoUrls[i], caption: p.caption, section: p.section,
         takenAt: p.taken_at ? new Date(p.taken_at).toISOString() : null, includeInReport: p.include_in_report, sortOrder: p.sort_order,
       })),
-      audio: audio.map((a) => ({ id: a.id, uploadStatus: a.upload_status, durationSec: a.duration_sec, recordedAt: new Date(a.recorded_at).toISOString(), transcriptionStatus: a.transcription_status })),
+      audio: audio.map((a, i) => ({
+        id: a.id, uploadStatus: a.upload_status, url: audioUrls[i], durationSec: a.duration_sec,
+        recordedAt: new Date(a.recorded_at).toISOString(), transcriptionStatus: a.transcription_status,
+      })),
       items: items.map((it) => ({
         id: it.id, section: it.section, text: it.text, severity: it.severity, addressee: it.addressee, dueDate: it.due_date,
         needsVerification: it.needs_verification, origin: it.origin, photoRefs: it.photo_refs, sortOrder: it.sort_order, version: it.version,

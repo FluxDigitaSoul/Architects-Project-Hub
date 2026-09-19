@@ -8,7 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { PinStatus } from '../../core/models';
+import type { PinStatus } from '../../core/api/review-api';
 
 export interface ViewerPin {
   id: string;
@@ -109,7 +109,7 @@ export function toPagePercent(clientX: number, clientY: number, rect: Pick<DOMRe
       display: grid; place-items: center; font-size: 12px; font-weight: 700; }
     .pin > span { transform: rotate(45deg); }
     .pin.WAITING { background: var(--warning); color: #fff; }
-    .pin.RESOLVED { background: #94a3b8; color: #fff; }
+    .pin.RESOLVED, .pin.FROZEN, .pin.TRANSFERRED { background: #94a3b8; color: #fff; }
     .pin.DRAFT { background: #fff; color: var(--color-primary); border-color: var(--color-primary); border-style: dashed; pointer-events: none; }
     .pin.is-selected { box-shadow: 0 0 0 4px var(--primary-ring), 0 3px 10px rgba(15, 23, 42, 0.3); z-index: 2; }
     .controls { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--line);

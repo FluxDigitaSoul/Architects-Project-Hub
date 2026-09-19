@@ -132,4 +132,32 @@ describe.skipIf(!enabled)('API against Supabase cloud', () => {
       .expect(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
+
+  it('manages invitations and keeps at least one active Owner (BR-12)', async () => {
+    const asAlice = (req: request.Test) => req.set('Authorization', `Bearer ${alice.token}`).set('X-Tenant-Slug', slugA);
+    const invited = await asAlice(http().post('/api/v1/studio/members/invitations'))
+      .send({ email: `e2e-${run}-carla@example.com`, role: 'COLLABORATOR' }).expect(201);
+    const inviteId = invited.body.membershipId as string;
+
+    const activate = await asAlice(http().patch(`/api/v1/studio/members/${inviteId}`)).send({ status: 'ACTIVE' }).expect(409);
+    expect(activate.body.error.code).toBe('INVALID_TRANSITION');
+    await asAlice(http().patch(`/api/v1/studio/members/${inviteId}`)).send({ status: 'REMOVED' }).expect(204);
+
+    const members = await asAlice(http().get('/api/v1/studio/members')).expect(200);
+    expect(members.body).toHaveLength(1);
+    const demote = await asAlice(http().patch(`/api/v1/studio/members/${members.body[0].membershipId}`)).send({ role: 'ARCHITECT' }).expect(409);
+    expect(demote.body.error.code).toBe('LAST_OWNER');
+  });
+
+  it('saves operations and document texts, validating the code pattern (FR-M0-05, FR-M0-11)', async () => {
+    const asAlice = (req: request.Test) => req.set('Authorization', `Bearer ${alice.token}`).set('X-Tenant-Slug', slugA);
+    const bad = await asAlice(http().patch('/api/v1/studio/settings/operations')).send({ codePattern: 'COMMESSA' }).expect(400);
+    expect(bad.body.error.code).toBe('VALIDATION_FAILED');
+    await asAlice(http().patch('/api/v1/studio/settings/operations')).send({ codePattern: 'AB-{YY}/{NN}', graceDays: 60 }).expect(204);
+    await asAlice(http().patch('/api/v1/studio/settings/branding')).send({ closingFormula: 'Letto e sottoscritto.' }).expect(204);
+
+    const settings = await asAlice(http().get('/api/v1/studio/settings')).expect(200);
+    expect(settings.body.settings).toMatchObject({ codePattern: 'AB-{YY}/{NN}', graceDays: 60 });
+    expect(settings.body.branding.closingFormula).toBe('Letto e sottoscritto.');
+  });
 });

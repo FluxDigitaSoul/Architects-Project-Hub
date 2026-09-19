@@ -1,216 +1,309 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { FieldStore } from '../../core/data/field-store';
-import { ProjectsStore } from '../../core/data/projects-store';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, input, resource, signal, untracked } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import { toApiError } from '../../core/api/api';
+import { DocumentsApi } from '../../core/api/documents-api';
+import { FieldApi, VISIT_STATUS_LABEL, VISIT_TYPE_LABEL, type VisitPatch, type VisitType } from '../../core/api/field-api';
+import { ProjectsApi } from '../../core/api/projects-api';
 import { fmtDateTime } from '../../core/data/format';
-import { REPORT_SECTION_LABEL, type ReportSection, VISIT_STATUS_LABEL } from '../../core/models';
-import { Dialog } from '../../shared/ui/dialog';
+import { FieldOps } from '../../core/field/field-ops';
+import { MediaQueue } from '../../core/field/media-queue';
+import { Confirmer } from '../../shared/ui/confirm';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { Icon } from '../../shared/ui/icon';
 import { Toaster } from '../../shared/ui/toast';
 import { val } from '../../shared/dom';
-import { type Recording, VoiceRecorder } from './voice-recorder';
+import { VisitAttendees } from './visit-attendees';
+import { VisitItems } from './visit-items';
+import { VisitMedia } from './visit-media';
 
-const SECTIONS: ReportSection[] = ['PROGRESS', 'ISSUES', 'ORDERS'];
-const WEATHER = ['Sereno', 'Nuvoloso', 'Pioggia', 'Neve', 'Vento'];
-const QUICK_ATTENDEES = ['Capocantiere', 'Committente', 'Impresa esecutrice', 'Coordinatore sicurezza'];
+const WEATHER = ['Sereno', 'Poco nuvoloso', 'Nuvoloso', 'Pioggia', 'Neve', 'Vento forte', 'Nebbia'];
 
-/** Sopralluogo dal telefono (AFU P-03, FR-M4-03..13). */
+/** ISO → valore per <input type="datetime-local"> nell'ora locale. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Sopralluogo e verbale (AFU Modulo 4): dati, presenti, voci per sezione, foto e note vocali,
+ * difformità dei verbali precedenti da verificare, finalizzazione del DL e verbale PDF.
+ */
 @Component({
   selector: 'app-field-visit',
-  imports: [RouterLink, Icon, EmptyState, Dialog, VoiceRecorder],
+  imports: [RouterLink, EmptyState, Icon, VisitAttendees, VisitItems, VisitMedia],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
   template: `
-    @if (visit(); as v) {
-      <a routerLink="/cantiere" class="back muted small"><ui-icon name="chevron-left" [size]="14" /> Cantiere</a>
+    <a [routerLink]="['/commesse', id()]" [queryParams]="{ scheda: 'sopralluoghi' }" class="back muted small">
+      <ui-icon name="chevron-left" [size]="14" /> {{ project.value()?.code }} · {{ project.value()?.title }}</a>
+
+    @if (view(); as v) {
       <div class="head">
-        <div class="eyebrow">{{ store.codeOf(v.projectId) }} · {{ dt(v.date) }}</div>
-        <h1>Sopralluogo n. {{ v.number }}</h1>
-        <span class="badge" [class.badge-success]="final()" [class.badge-warning]="v.status === 'REVIEW'">{{ label[v.status] }}</span>
+        <div>
+          <div class="row" style="gap:8px"><span class="eyebrow">{{ typeLabel[v.visitType] }}</span>
+            <span class="badge" [class.badge-plain]="v.status === 'DRAFT'" [class.badge-warning]="v.status === 'REVIEW'" [class.badge-success]="v.status === 'FINAL' || v.status === 'SENT'" [class.badge-danger]="v.status === 'CANCELLED'">{{ statusLabel[v.status] }}</span></div>
+          <h1>@if (v.number) { Sopralluogo n. {{ v.number }} } @else { Nuovo sopralluogo <span class="muted small">(numero in arrivo)</span> }</h1>
+          <p class="muted small">Iniziato il {{ dt(v.startedAt) }}@if (v.finalizedAt) { · finalizzato il {{ dt(v.finalizedAt) }} }</p>
+        </div>
+        <div class="row actions">
+          @if (editable()) {
+            <button class="btn btn-ghost btn-sm" (click)="cancelVisit()">Annulla sopralluogo</button>
+            <button class="btn btn-primary" [disabled]="busy()" (click)="finalize()"><ui-icon name="lock" [size]="15" /> Finalizza e firma</button>
+          }
+          @if (v.status === 'FINAL' || v.status === 'SENT') {
+            <button class="btn btn-primary" [disabled]="busy()" (click)="generateReport()"><ui-icon name="file" [size]="15" /> Verbale PDF</button>
+          }
+        </div>
       </div>
-
-      @if (final()) {
-        <div class="final card">
-          <ui-icon name="check" [size]="18" />
-          <div><b>Verbale finalizzato</b><p class="small">Testo, foto e audio non sono più modificabili (BR-09). Il PDF sarà generato dal backend (FR-M5-01).</p></div>
+      @if (v.status === 'CANCELLED') { <div class="notice small"><ui-icon name="info" [size]="15" /> Sopralluogo annullato: {{ v.cancelReason }}</div> }
+      @if (finalizeError(); as e) { <div class="alert small" role="alert">{{ e }}</div> }
+      @if (offlineSince() || pendingOps()) {
+        <div class="notice sync small" role="status">
+          <ui-icon name="refresh" [size]="15" />
+          <span>
+            @if (offlineSince(); as at) { Senza rete: stai vedendo i dati salvati sul telefono ({{ dt(at) }}). }
+            @if (pendingOps()) { {{ pendingOps() === 1 ? '1 modifica' : pendingOps() + ' modifiche' }} in attesa di invio: partiranno da sole appena torna la connessione. }
+          </span>
+        </div>
+      }
+      @for (op of failedOps(); track op.id) {
+        <div class="alert small row-between" role="alert">
+          <span>Una modifica non è stata accettata dal server: {{ op.error }}</span>
+          <span class="row"><button class="btn btn-ghost btn-sm" (click)="ops.retry(op.id)">Riprova</button><button class="btn btn-ghost btn-sm" (click)="ops.discard(op.id)">Scarta</button></span>
         </div>
       }
 
-      <section class="card sec">
-        <h3>Presenti</h3>
-        <div class="chips">
-          @for (a of d().attendees; track a) {
-            <span class="chip is-active">{{ a }}@if (!final() && !a.startsWith('Direttore')) { <button class="x" (click)="field.removeAttendee(id(), a)" aria-label="Rimuovi">✕</button> }</span>
-          }
-        </div>
-        @if (!final()) {
-          <div class="chips">@for (q of quick; track q) { <button class="chip" (click)="field.addAttendee(id(), q)">+ {{ q }}</button> }</div>
-          <div class="row"><input class="input" placeholder="Nome e qualifica" [value]="attendee()" (input)="attendee.set(val($event))" (keydown.enter)="addAttendee()" /><button class="btn btn-outline" (click)="addAttendee()">Aggiungi</button></div>
-        }
-        <h3 style="margin-top:6px">Meteo</h3>
-        <div class="chips">@for (w of weather; track w) { <button class="chip" [class.is-active]="d().weather === w" [disabled]="final()" (click)="field.setWeather(id(), w)">{{ w }}</button> }</div>
-      </section>
-
-      <section class="card sec">
-        <div class="row-between"><h3>Foto <span class="muted">{{ d().photos.length }}</span></h3>
-          @if (!final()) {
-            <label class="btn btn-primary"><ui-icon name="upload" [size]="16" /> Scatta / carica
-              <input type="file" accept="image/*" capture="environment" multiple hidden (change)="onPhotos($event)" /></label>
-          }
-        </div>
-        @if (d().photos.length) {
-          <div class="photos">
-            @for (p of d().photos; track p.id; let i = $index) {
-              <figure>
-                <img [src]="p.url" alt="" />
-                <span class="n">{{ i + 1 }}</span>
-                @if (!final()) { <button class="rm" (click)="field.removePhoto(id(), p.id)" aria-label="Rimuovi foto">✕</button> }
-                <input class="input input-sm" placeholder="Didascalia" [value]="p.caption" [disabled]="final()" (change)="field.setCaption(id(), p.id, val($event))" />
-              </figure>
-            }
-          </div>
-        } @else { <p class="muted small">Le foto vengono compresse sul telefono prima dell'invio (FR-M4-05).</p> }
-      </section>
-
-      <section class="card sec">
-        <h3>Note vocali</h3>
-        @if (!final()) { <app-voice-recorder (recorded)="onRecorded($event)" /> }
-        @for (a of d().audio; track a.id; let i = $index) {
-          <div class="audio"><span class="small"><b>Nota {{ i + 1 }}</b> · {{ a.durationSec }} s</span><audio [src]="a.url" controls preload="none"></audio>
-            @if (!final()) { <button class="btn btn-ghost btn-icon" (click)="field.removeAudio(id(), a.id)" aria-label="Elimina"><ui-icon name="trash" [size]="15" /></button> }</div>
-        }
-        @if (!final()) {
-          <button class="btn btn-outline ai" [disabled]="d().aiState === 'RUNNING'" (click)="runAi()">
-            <ui-icon name="sparkles" [size]="16" /> {{ d().aiState === 'RUNNING' ? 'Trascrizione e strutturazione in corso…' : 'Genera la bozza del verbale con AI' }}
-          </button>
-          <p class="muted small">Simulazione: la trascrizione reale (FR-M4-09) arriverà con il backend. La bozza va sempre revisionata dal DL (BR-05).</p>
-        }
-      </section>
-
-      @for (s of sections; track s) {
-        <section class="card sec">
-          <div class="row-between"><h3>{{ sectionLabel[s] }}</h3>
-            @if (!final()) { <button class="btn btn-ghost btn-sm" (click)="field.addItem(id(), s)"><ui-icon name="plus" [size]="14" /> Voce</button> }</div>
-          @for (it of itemsOf(s); track it.id; let i = $index) {
-            <div class="item" [class.flag]="it.needsVerification">
-              <div class="row-between small"><b>{{ prefix(s) }}.{{ i + 1 }}</b>
-                <span class="row" style="gap:6px">
-                  @if (it.origin !== 'HUMAN') { <span class="badge badge-info badge-plain">{{ it.origin === 'AI' ? 'Bozza AI' : 'AI · revisionata' }}</span> }
-                  @if (!final()) {
-                    <select class="select select-sm" style="width:auto" (change)="field.moveItem(id(), it.id, $any(val($event)))">
-                      @for (t of sections; track t) { <option [value]="t" [selected]="t === s">{{ prefix(t) }}</option> }
-                    </select>
-                    <button class="btn btn-ghost btn-icon" (click)="field.removeItem(id(), it.id)" aria-label="Elimina voce"><ui-icon name="trash" [size]="14" /></button>
-                  }
-                </span>
+      <div class="layout">
+        <div class="col">
+          <section class="card">
+            <div class="card-header"><h3>Dati del sopralluogo</h3></div>
+            <fieldset class="card-body stack" [disabled]="!editable()">
+              <div class="grid grid-2">
+                <div class="field"><label for="fv-type">Tipo</label>
+                  <select id="fv-type" class="select" (change)="patch({ visitType: $any(val($event)) })">
+                    @for (t of types; track t[0]) { <option [value]="t[0]" [selected]="t[0] === v.visitType">{{ t[1] }}</option> }
+                  </select></div>
+                <div class="field"><label for="fv-phase">Fase dei lavori</label>
+                  <input id="fv-phase" class="input" maxlength="100" placeholder="Es. demolizioni, impianti" [value]="v.phase ?? ''" (change)="patch({ phase: val($event).trim() || null })" /></div>
               </div>
-              <textarea class="textarea" rows="2" [value]="it.text" [disabled]="final()" (change)="field.updateItem(id(), it.id, val($event))"></textarea>
-              @if (it.needsVerification) { <span class="small" style="color:var(--warning)">Completa il punto [DA VERIFICARE] per poter finalizzare.</span> }
-            </div>
-          } @empty { <p class="muted small">Nessuna voce.</p> }
-        </section>
-      }
+              <div class="grid grid-2">
+                <div class="field"><label for="fv-start">Inizio</label>
+                  <input id="fv-start" class="input" type="datetime-local" [value]="local(v.startedAt)" (change)="patchDate('startedAt', val($event))" /></div>
+                <div class="field"><label for="fv-end">Fine</label>
+                  <input id="fv-end" class="input" type="datetime-local" [value]="local(v.endedAt)" (change)="patchDate('endedAt', val($event))" /></div>
+              </div>
+              <div class="grid grid-2">
+                <div class="field"><label for="fv-w">Meteo</label>
+                  <select id="fv-w" class="select" (change)="setWeather(val($event), v.weather?.temperatureC)">
+                    <option value="" [selected]="!v.weather">—</option>
+                    @for (w of weather; track w) { <option [value]="w" [selected]="w === v.weather?.condition">{{ w }}</option> }
+                  </select></div>
+                <div class="field"><label for="fv-t">Temperatura (°C)</label>
+                  <input id="fv-t" class="input mono" type="number" min="-40" max="60" [value]="v.weather?.temperatureC ?? ''" [disabled]="!v.weather"
+                    (change)="setWeather(v.weather?.condition ?? '', val($event) === '' ? undefined : +val($event))" /></div>
+              </div>
+              <div class="field"><label for="fv-notes">Note generali</label>
+                <textarea id="fv-notes" class="input area" rows="3" maxlength="5000" [value]="v.generalNotes ?? ''" (change)="patch({ generalNotes: val($event).trim() || null })"></textarea></div>
+            </fieldset>
+          </section>
 
-      @if (!final()) {
-        <div class="bar">
-          <div class="small">
-            @if (blockers().length) { @for (b of blockers(); track b) { <div style="color:var(--warning)">• {{ b }}</div> } }
-            @else { <span style="color:var(--success)">Pronto per la finalizzazione</span> }
-          </div>
-          <button class="btn btn-primary btn-lg" [disabled]="blockers().length > 0" (click)="confirmOpen.set(true)"><ui-icon name="check" [size]="16" /> Finalizza verbale</button>
-        </div>
-      }
+          <app-visit-attendees [projectId]="id()" [visitId]="v.id" [attendees]="v.attendees" [project]="project.value() ?? null" [readOnly]="!editable()" (changed)="refresh()" />
 
-      <ui-dialog [open]="confirmOpen()" title="Finalizzare il verbale?" (closed)="confirmOpen.set(false)">
-        <p>Finalizzando, il verbale n. {{ v.number }} non sarà più modificabile. Eventuali correzioni richiederanno l'annullamento motivato e un nuovo verbale.</p>
-        <div dialog-actions>
-          <button class="btn btn-outline" (click)="confirmOpen.set(false)">Annulla</button>
-          <button class="btn btn-primary" (click)="finalize()">Finalizza</button>
+          @if (v.openActionsToVerify.length) {
+            <section class="card">
+              <div class="card-header"><h3>Difformità da verificare</h3><span class="badge badge-warning">{{ v.openActionsToVerify.length }}</span></div>
+              <ul class="actions-list">
+                @for (a of v.openActionsToVerify; track a.id) {
+                  <li><label class="check"><input type="checkbox" [checked]="resolved().has(a.id)" [disabled]="!editable()" (change)="toggleResolved(a.id)" />
+                    <span>{{ a.text }} <span class="muted small">· dal verbale n. {{ a.sourceVisitNumber }}@if (a.dueDate) { · entro il {{ a.dueDate }} }</span></span></label></li>
+                }
+              </ul>
+              <p class="muted small pad">Spunta quelle risolte: si chiuderanno alla finalizzazione di questo verbale.</p>
+            </section>
+          }
+
+          <app-visit-media [projectId]="id()" [visitId]="v.id" [photos]="v.photos" [audio]="v.audio" [readOnly]="!editable()" (changed)="refresh()" />
         </div>
-      </ui-dialog>
-    } @else {
-      <div class="card"><ui-empty icon="hardhat" title="Sopralluogo non trovato" /></div>
-    }
+        <div class="col">
+          <app-visit-items [projectId]="id()" [visitId]="v.id" [items]="v.items" [readOnly]="!editable()" (changed)="refresh()" />
+        </div>
+      </div>
+    } @else if (loaded.error()) {
+      <div class="card"><ui-empty icon="hardhat" title="Sopralluogo non disponibile" [text]="errorText()" /></div>
+    } @else { <div class="card skeleton"></div> }
   `,
   styles: `
-    :host { display: block; max-width: 760px; padding-bottom: 96px; }
     .back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 10px; }
-    .head { display: grid; gap: 4px; justify-items: start; margin-bottom: 14px; }
-    .final { display: flex; gap: 10px; padding: 14px 16px; margin-bottom: 12px; background: var(--success-soft); color: var(--success); border-color: transparent; }
-    .sec { padding: 16px; display: grid; gap: 12px; margin-bottom: 12px; }
-    .sec h3 span { font-weight: 400; }
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .chip { height: 36px; gap: 6px; }
-    .chip .x { border: 0; background: transparent; color: inherit; cursor: pointer; opacity: 0.8; padding: 0 0 0 4px; }
-    .photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-    figure { margin: 0; position: relative; display: grid; gap: 6px; }
-    figure img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
-    figure .n { position: absolute; top: 6px; left: 6px; background: rgba(15, 23, 42, 0.75); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
-    figure .rm { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(15, 23, 42, 0.75); color: #fff; cursor: pointer; }
-    .audio { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .audio audio { height: 36px; flex: 1; min-width: 200px; }
-    .ai { height: 46px; }
-    .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
-    .item.flag { border-color: var(--warning); background: var(--warning-soft); }
-    .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      padding: 12px max(16px, calc((100vw - var(--sidebar-w) - 760px) / 2)); padding-left: calc(var(--sidebar-w) + 28px);
-      background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border-top: 1px solid var(--line); }
-    @media (max-width: 960px) { .bar { padding: 12px 14px; } .bar .btn { height: 48px; } }
+    .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+    .actions { gap: 8px; flex-wrap: wrap; }
+    .notice { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); margin-bottom: 12px; }
+    .notice.sync { background: var(--info-soft); }
+    .row-between { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .alert { padding: 10px 12px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); margin-bottom: 12px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .col { display: grid; gap: 14px; }
+    fieldset { border: 0; margin: 0; min-width: 0; }
+    .area { height: auto; padding-top: 8px; resize: vertical; }
+    .actions-list { list-style: none; margin: 0; padding: 6px 16px; display: grid; gap: 8px; }
+    .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+    .check input { margin-top: 3px; }
+    .pad { padding: 0 16px 12px; margin: 0; }
+    .skeleton { height: 50vh; }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
   `,
 })
 export class FieldVisit {
   readonly id = input.required<string>();
-  protected readonly store = inject(ProjectsStore);
-  protected readonly field = inject(FieldStore);
+  readonly visitId = input.required<string>();
+
+  private readonly api = inject(FieldApi);
+  private readonly projects = inject(ProjectsApi);
+  private readonly documents = inject(DocumentsApi);
+  private readonly queue = inject(MediaQueue);
+  protected readonly ops = inject(FieldOps);
+  private readonly router = inject(Router);
   private readonly toaster = inject(Toaster);
+  private readonly confirmer = inject(Confirmer);
   protected readonly val = val;
   protected readonly dt = fmtDateTime;
-  protected readonly label = VISIT_STATUS_LABEL;
-  protected readonly sectionLabel = REPORT_SECTION_LABEL;
-  protected readonly sections = SECTIONS;
+  protected readonly local = toLocalInput;
   protected readonly weather = WEATHER;
-  protected readonly quick = QUICK_ATTENDEES;
+  protected readonly typeLabel = VISIT_TYPE_LABEL;
+  protected readonly statusLabel = VISIT_STATUS_LABEL;
+  protected readonly types = Object.entries(VISIT_TYPE_LABEL) as [VisitType, string][];
 
-  protected readonly visit = computed(() => this.store.visits().find((v) => v.id === this.id()) ?? null);
-  protected readonly d = computed(() => this.field.detail(this.id())());
-  protected readonly blockers = computed(() => this.field.blockers(this.id())());
-  protected readonly final = computed(() => ['FINAL', 'SENT'].includes(this.visit()?.status ?? ''));
-  protected readonly attendee = signal('');
-  protected readonly confirmOpen = signal(false);
+  /** FR-M4-14: commessa e sopralluogo si aprono anche senza rete, dall'ultima copia salvata sul telefono. */
+  protected readonly project = resource({
+    params: () => this.id(),
+    loader: ({ params }) => this.ops.load(`project:${params}`, () => this.projects.detail(params)).then((r) => r.data),
+  });
+  protected readonly loaded = resource({
+    params: () => ({ p: this.id(), v: this.visitId() }),
+    loader: ({ params }) => this.ops.load(`visit:${params.v}`, () => this.api.detail(params.p, params.v), true),
+  });
+  /** Dati del server (o della copia locale) con sopra le modifiche ancora in coda. */
+  protected readonly view = computed(() => {
+    const r = this.loaded.value();
+    return r ? this.ops.apply(r.data) : undefined;
+  });
+  protected readonly offlineSince = computed(() => this.loaded.value()?.offlineSince ?? null);
+  private readonly visitOps = computed(() => this.ops.all().filter((o) => o.visitId === this.visitId()));
+  protected readonly pendingOps = computed(() => this.visitOps().filter((o) => !o.error).length);
+  protected readonly failedOps = computed(() => this.visitOps().filter((o) => o.error));
+  protected readonly resolved = signal<Set<string>>(new Set());
+  protected readonly busy = signal(false);
+  protected readonly finalizeError = signal<string | null>(null);
 
-  protected itemsOf(section: ReportSection) {
-    return this.d().items.filter((i) => i.section === section);
+  protected readonly editable = computed(() => {
+    const s = this.view()?.status;
+    // Senza rete e senza copia della commessa si lascia lavorare: il server ricontrolla all'invio.
+    const projectStatus = this.project.value()?.status ?? (this.project.error() ? 'ACTIVE' : null);
+    return (s === 'DRAFT' || s === 'REVIEW') && projectStatus === 'ACTIVE';
+  });
+  protected readonly errorText = computed(() => toApiError(this.loaded.error()).userMessage);
+
+  constructor() {
+    // Quando un file o una modifica in coda arrivano al server si ricarica il sopralluogo.
+    effect(() => {
+      if (this.queue.uploaded() + this.ops.synced() > 0) untracked(() => this.refresh());
+    });
   }
 
-  protected prefix(section: ReportSection): number {
-    return SECTIONS.indexOf(section) + 1;
+  protected refresh(): void {
+    this.loaded.reload();
   }
 
-  protected addAttendee(): void {
-    this.field.addAttendee(this.id(), this.attendee());
-    this.attendee.set('');
+  /** Le modifiche si vedono subito e partono dalla coda del cantiere (FR-M4-14). */
+  protected async patch(p: VisitPatch): Promise<void> {
+    try {
+      await this.ops.enqueue({ kind: 'update-visit', projectId: this.id(), visitId: this.visitId(), patch: p });
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    }
   }
 
-  protected onPhotos(e: Event): void {
-    const input = e.target as HTMLInputElement;
-    this.field.addPhotos(this.id(), Array.from(input.files ?? []));
-    input.value = '';
+  protected patchDate(field: 'startedAt' | 'endedAt', value: string): void {
+    if (!value && field === 'startedAt') return;
+    void this.patch({ [field]: value ? new Date(value).toISOString() : null });
   }
 
-  protected onRecorded(r: Recording): void {
-    this.field.addAudio(this.id(), r.blob, r.durationSec);
-    this.toaster.show('Nota vocale salvata sul dispositivo', 'info');
+  protected setWeather(condition: string, temperatureC?: number): void {
+    void this.patch({ weather: condition ? { condition, source: 'MANUAL', ...(temperatureC !== undefined ? { temperatureC } : {}) } : null });
   }
 
-  protected async runAi(): Promise<void> {
-    await this.field.runAi(this.id());
-    this.toaster.show('Bozza pronta: revisiona le voci evidenziate');
+  protected toggleResolved(id: string): void {
+    this.resolved.update((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
-  protected finalize(): void {
-    this.confirmOpen.set(false);
-    if (this.field.finalize(this.id())) this.toaster.show('Verbale finalizzato');
-    else this.toaster.show('Completa le voci da verificare prima di finalizzare', 'danger');
+  /** FR-M4-12: la finalizzazione congela il verbale (BR-09); lo firma il Direttore dei Lavori. */
+  protected async finalize(): Promise<void> {
+    // BR-23: si finalizza solo quando tutto quello che è sul telefono è arrivato al server.
+    if (this.queue.all().some((q) => q.visitId === this.visitId() && !q.error) || this.visitOps().length) {
+      this.finalizeError.set(this.failedOps().length
+        ? 'Alcune modifiche sono state rifiutate dal server: riprova o scartale prima di finalizzare.'
+        : 'Alcune modifiche, foto o note sono ancora sul telefono: attendi che arrivino al server (serve la rete).');
+      return;
+    }
+    const ok = await this.confirmer.ask({
+      title: 'Finalizzare il verbale?',
+      text: 'Il verbale non si potrà più modificare. Per correggerlo andrà annullato e rifatto. Potrai poi generare il PDF e inviarlo.',
+      confirmLabel: 'Finalizza',
+    });
+    if (!ok) return;
+    this.busy.set(true);
+    this.finalizeError.set(null);
+    try {
+      await this.api.finalize(this.id(), this.visitId(), [...this.resolved()]);
+      this.toaster.show('Verbale finalizzato');
+      this.refresh();
+    } catch (e) {
+      const err = toApiError(e);
+      const hints: Record<string, string> = {
+        SYNC_INCOMPLETE: 'Alcuni file non sono ancora arrivati al server: attendi la sincronizzazione e riprova.',
+        AI_REVIEW_PENDING: 'Ci sono voci "da verificare": confermale o modificale prima di finalizzare.',
+        SIGNER_NOT_QUALIFIED: err.message.includes('ordine')
+          ? 'Per firmare il verbale completa ordine professionale e numero di iscrizione nel tuo profilo (Impostazioni).'
+          : 'Il verbale lo finalizza il Direttore dei Lavori della commessa (assegnalo in Team e imprese).',
+      };
+      this.finalizeError.set(hints[err.code] ?? err.userMessage);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async cancelVisit(): Promise<void> {
+    const r = await this.confirmer.ask({
+      title: 'Annullare il sopralluogo?', text: 'Resta nello storico con il motivo; il numero non viene riutilizzato.',
+      confirmLabel: 'Annulla sopralluogo', tone: 'danger', input: { label: 'Motivo', minLength: 10 },
+    });
+    if (!r) return;
+    try {
+      await this.api.cancel(this.id(), this.visitId(), r.value);
+      this.toaster.show('Sopralluogo annullato');
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    }
+    this.refresh();
+  }
+
+  /** FR-M5-01: verbale PDF (se esiste già, si riapre quello archiviato). */
+  protected async generateReport(): Promise<void> {
+    this.busy.set(true);
+    try {
+      const r = await this.documents.generateSiteReport(this.id(), this.visitId());
+      this.toaster.show(r.existing ? 'Il verbale PDF esiste già: lo trovi nei Documenti' : 'Verbale PDF generato: firmalo e invialo dai Documenti');
+      await this.router.navigate(['/commesse', this.id()], { queryParams: { scheda: 'documenti' } });
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    } finally {
+      this.busy.set(false);
+    }
   }
 }

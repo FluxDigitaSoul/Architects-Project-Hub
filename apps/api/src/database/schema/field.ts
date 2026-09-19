@@ -82,6 +82,7 @@ export interface AudioNotesTable {
   recorded_at: Timestamp;
   transcription_status: Generated<'NONE' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED'>;
   created_at: Timestamp;
+  purged_at: NullableTimestamp;
 }
 
 export interface TranscriptsTable {

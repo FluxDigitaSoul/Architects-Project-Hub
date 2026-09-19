@@ -1,8 +1,12 @@
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { Kysely, PostgresDialect, type Transaction, sql } from 'kysely';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import { ENV, type Env } from '../config/env';
 import type { Database } from './schema';
+
+// Le colonne `date` (scadenze, termini, date della commessa) restano 'YYYY-MM-DD': convertirle in
+// Date a mezzanotte del fuso del server sposterebbe il giorno nelle risposte JSON.
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
 export type Db = Kysely<Database>;
 export type Tx = Transaction<Database>;

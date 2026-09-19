@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { sql } from 'kysely';
 import { AppError } from '../common/app-error';
+import { NotificationsService } from '../automation/notifications.service';
 import { AuditService, type RequestMeta } from '../common/audit';
 import type { Tx } from '../database/database';
 import type { AuthorType, PinStatus, VersionStatus } from '../database/schema/review';
@@ -23,7 +24,10 @@ const auditActor = (actor: ReviewActor) => (actor.type === 'MEMBER' ? ('USER' as
 /** Pin e thread di commenti — FR-M2-07..13, SM-PIN, BR-01/11/14/20. */
 @Injectable()
 export class PinsService {
-  constructor(private readonly audit: AuditService) {}
+  constructor(
+    private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /** Versione della commessa visibile all'attore; per il committente solo le pubblicate (BR-25). */
   async loadVersion(tx: Tx, actor: ReviewActor, versionId: string) {
@@ -131,6 +135,7 @@ export class PinsService {
       tenantId: actor.tenantId, actorType: auditActor(actor), actorId: actor.id,
       action: 'PIN_CREATED', objectType: 'PIN', objectId: pin.id, details: { versionId: version.id, number: pin.number }, meta,
     });
+    await this.notifications.reviewActivity(tx, actor, pin.id, 'PIN_CREATED', input.body);
     return pin;
   }
 
@@ -158,6 +163,7 @@ export class PinsService {
       tenantId: actor.tenantId, actorType: auditActor(actor), actorId: actor.id,
       action: 'COMMENT_ADDED', objectType: 'PIN', objectId: pin.id, details: { commentId: comment.id }, meta,
     });
+    await this.notifications.reviewActivity(tx, actor, pin.id, 'COMMENT_ADDED', body);
     return comment;
   }
 
@@ -195,6 +201,7 @@ export class PinsService {
     await this.audit.record(tx, {
       tenantId: actor.tenantId, actorType: 'USER', actorId: actor.id, action: 'PIN_RESOLVED', objectType: 'PIN', objectId: pin.id, meta,
     });
+    await this.notifications.reviewActivity(tx, actor, pin.id, 'PIN_RESOLVED');
   }
 
   /** BR-11: riapertura con commento obbligatorio, dall'autore committente o dallo studio. */
@@ -211,6 +218,7 @@ export class PinsService {
       tenantId: actor.tenantId, actorType: auditActor(actor), actorId: actor.id,
       action: 'PIN_REOPENED', objectType: 'PIN', objectId: pin.id, meta,
     });
+    await this.notifications.reviewActivity(tx, actor, pin.id, 'PIN_REOPENED', body);
   }
 
   /** SM-PIN: l'autore ritira il pin finché nessun altro ha risposto. */

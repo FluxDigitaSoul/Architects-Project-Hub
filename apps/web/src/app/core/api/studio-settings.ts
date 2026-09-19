@@ -3,6 +3,14 @@ import { Api, uploadToSignedUrl } from './api';
 import type { StudioRole } from '../tenant/tenant-context';
 
 export type LogoKind = 'primary' | 'print' | 'icon';
+
+/** FR-MT-06: come ricevere le notifiche email della revisione. */
+export type NotificationMode = 'GROUPED' | 'DAILY' | 'OFF';
+export const NOTIFICATION_MODE_LABEL: Record<NotificationMode, { label: string; hint: string }> = {
+  GROUPED: { label: 'Subito', hint: 'Un’email ogni 10 minuti al massimo, con tutte le novità insieme.' },
+  DAILY: { label: 'Una volta al giorno', hint: 'Un riepilogo alle 18 con le novità della giornata.' },
+  OFF: { label: 'Nessuna', hint: 'Solo le email indispensabili: codici, inviti, link di accesso.' },
+};
 export type PortalTheme = 'LIGHT' | 'DARK' | 'AUTO';
 
 export interface LegalAddress {
@@ -33,6 +41,8 @@ export interface StudioOperations {
   codePattern?: string;
   graceDays?: number;
   requireOtpNewDevice?: boolean;
+  /** PRIV-03: giorni di conservazione dell'audio dopo la finalizzazione del verbale. */
+  audioRetentionDays?: number;
 }
 
 /** FR-M0-04/05 e FR-M5-00/20. */
@@ -62,6 +72,7 @@ export interface MyProfile {
   professionalOrder: string | null;
   registrationNumber: string | null;
   registrationSection: string | null;
+  notificationMode: NotificationMode;
   canSign: boolean;
 }
 

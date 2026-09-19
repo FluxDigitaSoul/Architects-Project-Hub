@@ -8,13 +8,18 @@ export const routes: Routes = [
     loadComponent: () => import('./features/auth/login').then((m) => m.Login),
   },
   {
-    // Portale del committente: accesso con Magic Link, fuori dall'area dello studio (AFU FR-M1-05).
+    // Magic Link del committente: si scambia con la sessione e si passa a /portale (AFU FR-M1-05).
     path: 'p/:token',
+    loadComponent: () => import('./features/portal/portal-entry').then((m) => m.PortalEntry),
+  },
+  {
+    // Portale del committente, fuori dall'area dello studio (sessione con cookie, BR-25).
+    path: 'portale',
     loadComponent: () => import('./features/portal/portal-shell').then((m) => m.PortalShell),
     children: [
       { path: '', loadComponent: () => import('./features/portal/portal-home').then((m) => m.PortalHome) },
       {
-        path: 'tavole/:drawingId',
+        path: 'tavole/:versionId',
         loadComponent: () => import('./features/portal/portal-drawing').then((m) => m.PortalDrawing),
       },
     ],
@@ -55,12 +60,16 @@ export const routes: Routes = [
         loadComponent: () => import('./features/field/field-list').then((m) => m.FieldList),
       },
       {
-        path: 'cantiere/:id',
+        path: 'commesse/:id/sopralluoghi/:visitId',
         loadComponent: () => import('./features/field/field-visit').then((m) => m.FieldVisit),
       },
       {
+        path: 'documenti',
+        loadComponent: () => import('./features/documents/documents-page').then((m) => m.DocumentsPage),
+      },
+      {
         path: 'impostazioni',
-        loadComponent: () => import('./features/settings/branding').then((m) => m.BrandingSettings),
+        loadComponent: () => import('./features/settings/settings-page').then((m) => m.SettingsPage),
       },
     ],
   },

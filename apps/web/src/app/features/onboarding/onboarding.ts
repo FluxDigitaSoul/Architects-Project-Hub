@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { isValidItalianVat, isValidTenantSlug, suggestTenantSlug } from '@aph/contracts';
-import { ApiError, toApiError } from '../../core/api/api';
+import { type ApiError, toApiError } from '../../core/api/api';
 import { LOGO_ACCEPT, LOGO_MAX_BYTES, StudioSettingsApi } from '../../core/api/studio-settings';
 import { Auth } from '../../core/auth/auth';
 import { TenantContext } from '../../core/tenant/tenant-context';

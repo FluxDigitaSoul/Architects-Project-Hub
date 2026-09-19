@@ -38,6 +38,8 @@ export interface BuildingTree {
   units: UnitTree[];
 }
 
+export type RaiRows = Awaited<ReturnType<RaiCalcService['loadRows']>>;
+
 interface ProfileRef {
   versionId: string;
   profile: RegulationProfile;
@@ -58,13 +60,14 @@ export function canonicalJson(value: unknown): string {
 export class RaiCalcService {
   constructor(private readonly audit: AuditService) {}
 
-  /** Carica fabbricati, unità, vani, aperture e deroghe e li converte negli input del motore. */
-  async loadTree(tx: Tx, projectId: string): Promise<BuildingTree[]> {
-    const buildings = await tx.selectFrom('buildings').select(['id', 'name', 'address'])
+  /** Righe della struttura R.A.I. della commessa (fabbricati, unità, vani, aperture, deroghe). */
+  async loadRows(tx: Tx, projectId: string) {
+    const buildings = await tx.selectFrom('buildings').selectAll()
       .where('project_id', '=', projectId).orderBy('sort_order').orderBy('created_at').execute();
-    if (!buildings.length) return [];
-    const units = await tx.selectFrom('dwelling_units').selectAll()
-      .where('building_id', 'in', buildings.map((b) => b.id)).orderBy('sort_order').orderBy('created_at').execute();
+    const units = buildings.length
+      ? await tx.selectFrom('dwelling_units').selectAll()
+        .where('building_id', 'in', buildings.map((b) => b.id)).orderBy('sort_order').orderBy('created_at').execute()
+      : [];
     const unitIds = units.map((u) => u.id);
     const rooms = unitIds.length
       ? await tx.selectFrom('rooms').selectAll().where('unit_id', 'in', unitIds).orderBy('sort_order').orderBy('created_at').execute()
@@ -79,7 +82,15 @@ export class RaiCalcService {
         .where((eb) => eb.or([eb('room_id', 'in', scopeIds), eb('unit_id', 'in', scopeIds)]))
         .orderBy('created_at').execute()
       : [];
+    return { buildings, units, rooms, openings, derogations };
+  }
 
+  /** Carica fabbricati, unità, vani, aperture e deroghe e li converte negli input del motore. */
+  async loadTree(tx: Tx, projectId: string): Promise<BuildingTree[]> {
+    return this.treeFrom(await this.loadRows(tx, projectId));
+  }
+
+  private treeFrom({ buildings, units, rooms, openings, derogations }: RaiRows): BuildingTree[] {
     const toDerogation = (d: (typeof derogations)[number]): DerogationInput => ({
       code: d.code,
       covers: d.covers as DerogationInput['covers'],
@@ -155,8 +166,8 @@ export class RaiCalcService {
   }
 
   /** Esegue il calcolo di tutta la commessa (FR-M3-08, FR-M3-14, FR-M3-15). */
-  async evaluate(tx: Tx, project: ProjectRow) {
-    const tree = await this.loadTree(tx, project.id);
+  async evaluate(tx: Tx, project: ProjectRow, rows?: RaiRows) {
+    const tree = rows ? this.treeFrom(rows) : await this.loadTree(tx, project.id);
     const { project: projectProfile, byVersion } = await this.profiles(tx, project, tree);
     const context: EvaluationContext = { altitude: project.altitude_m };
     const buildings = tree.map((b) => ({
@@ -190,10 +201,45 @@ export class RaiCalcService {
     return { counts, rooms, deficitSqm: (Math.round(deficitMicro / 10_000) / 100).toFixed(2) };
   }
 
+  /** Calcolo e struttura completa per l'editor (id e campi descrittivi che il motore non usa). */
   async projectResults(tx: Tx, scope: StudioScope, projectId: string) {
     const project = await loadVisibleProject(tx, scope, projectId);
-    const evaluated = await this.evaluate(tx, project);
-    return { ...evaluated, summary: RaiCalcService.summarize(evaluated.buildings.flatMap((b) => b.units)) };
+    const rows = await this.loadRows(tx, project.id);
+    const evaluated = await this.evaluate(tx, project, rows);
+    return {
+      ...evaluated,
+      summary: RaiCalcService.summarize(evaluated.buildings.flatMap((b) => b.units)),
+      structure: RaiCalcService.structureOf(rows),
+      projectProfileVersionId: project.regulation_profile_version_id,
+      altitudeM: project.altitude_m,
+    };
+  }
+
+  static structureOf({ buildings, units, rooms, openings, derogations }: RaiRows) {
+    const derogationDto = (d: RaiRows['derogations'][number]) => ({
+      id: d.id, code: d.code, covers: d.covers, justification: d.justification, legalReference: d.legal_reference,
+      createdAt: new Date(d.created_at).toISOString(),
+    });
+    return buildings.map((b) => ({
+      id: b.id, name: b.name, address: b.address, floors: b.floors, yearBuilt: b.year_built, constraints: b.constraints,
+      units: units.filter((u) => u.building_id === b.id).map((u) => ({
+        id: u.id, name: u.name, floor: u.floor, unitType: u.unit_type, occupants: u.occupants, isAttic: u.is_attic,
+        cadastral: u.cadastral, regulationProfileVersionId: u.regulation_profile_version_id,
+        derogations: derogations.filter((d) => d.unit_id === u.id).map(derogationDto),
+        rooms: rooms.filter((r) => r.unit_id === u.id).map((r) => ({
+          id: r.id, name: r.name, code: r.code, use: r.use, floorArea: canonicalDecimal(r.floor_area),
+          nonComputableArea: r.non_computable_area === null ? null : canonicalDecimal(r.non_computable_area),
+          ceiling: r.ceiling, isWindowless: r.is_windowless, mechanicalVentilation: r.mechanical_ventilation, notes: r.notes,
+          derogations: derogations.filter((d) => d.room_id === r.id).map(derogationDto),
+          openings: openings.filter((o) => o.room_id === r.id).map((o) => ({
+            id: o.id, label: o.label, kind: o.kind, quantity: o.quantity, width: canonicalDecimal(o.width), height: canonicalDecimal(o.height),
+            sillHeight: dec(o.sill_height) ?? null, glassWidth: dec(o.glass_width) ?? null, glassHeight: dec(o.glass_height) ?? null,
+            operability: o.operability, openableArea: dec(o.openable_area) ?? null, overhangDepth: dec(o.overhang_depth) ?? null,
+            orientation: o.orientation, facesSuitableSpace: o.faces_suitable_space, openingTypeId: o.opening_type_id, notes: o.notes,
+          })),
+        })),
+      })),
+    }));
   }
 
   /**

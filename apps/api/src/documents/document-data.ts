@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DEFAULT_ATTESTATION, DEFAULT_CLOSING_FORMULA } from '@aph/contracts';
 import type { Outcome, UnitInput, UnitResult } from '@aph/rai-engine';
 import { AppError } from '../common/app-error';
 import type { Tx } from '../database/database';
@@ -15,13 +16,6 @@ const INTERVENTION_LABEL: Record<string, string> = {
   RESTORATION: 'Restauro e risanamento conservativo', CHANGE_OF_USE: 'Cambio di destinazione d’uso',
   SPLIT_MERGE: 'Frazionamento / accorpamento', ATTIC_RECOVERY: 'Recupero sottotetto', INTERIOR_DESIGN: 'Interior design', OTHER: 'Intervento',
 };
-
-/** Testo di asseverazione predefinito (FR-M5-20 punto 10) — da validare con il legale e lo studio partner (Q-16). */
-export const DEFAULT_ATTESTATION =
-  'Il/La sottoscritto/a {titolo} {nome}, iscritto/a all’{ordine} al n. {numero}, in qualità di progettista, consapevole delle ' +
-  'responsabilità penali previste dall’art. 76 del D.P.R. 445/2000 e dall’art. 481 del Codice Penale in caso di dichiarazioni ' +
-  'mendaci, ASSEVERA che le opere in progetto rispettano i requisiti igienico-sanitari di cui al profilo normativo "{profilo}", ' +
-  'come dettagliato nella presente relazione.';
 
 export interface Signer {
   membershipId: string;
@@ -100,7 +94,7 @@ export class DocumentData {
   }
 
   /** Verbale di sopralluogo (FR-M5-01) da un sopralluogo finalizzato. */
-  async siteReport(tx: Tx, visitId: string) {
+  async siteReport(tx: Tx, visitId: string, closingFormula: string | null) {
     const v = await tx.selectFrom('site_visits').selectAll().where('id', '=', visitId).executeTakeFirst();
     if (!v) throw new AppError('NOT_FOUND', 'Sopralluogo non trovato.');
     if (!['FINAL', 'SENT', 'CANCELLED'].includes(v.status)) throw new AppError('INVALID_TRANSITION', 'Il verbale si genera dopo la finalizzazione.');
@@ -139,7 +133,7 @@ export class DocumentData {
       generalNotes: [v.general_notes, ...items.filter((i) => i.section === 'GENERAL').map((i) => i.text)].filter(Boolean).join('\n') || null,
       photos: photos.map((ph, i) => ({ number: i + 1, image: images[i] ?? null, caption: ph.caption ?? '', takenAt: ph.taken_at ? new Date(ph.taken_at) : null })),
       place: p.municipality,
-      closingFormula: 'Letto, confermato e sottoscritto.',
+      closingFormula: closingFormula ?? DEFAULT_CLOSING_FORMULA,
       aiAssisted: items.some((i) => i.origin !== 'HUMAN'),
     };
     return { data, projectId: p.id, number: v.number, date: new Date(v.finalized_at ?? v.started_at), directorMembershipId: v.director_membership_id };

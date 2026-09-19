@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { type AuthError, type Session as SupabaseSession, type SupabaseClient, createClient } from '@supabase/supabase-js';
+import { type AuthError, AuthClient, type Session as SupabaseSession } from '@supabase/auth-js';
 import { environment } from '../../../environments/environment';
 import { ApiSession } from '../api/api';
 
@@ -33,8 +33,11 @@ function toSession(s: SupabaseSession | null): Session | null {
 @Injectable({ providedIn: 'root' })
 export class Auth {
   private readonly api = inject(ApiSession);
-  private readonly client: SupabaseClient = createClient(environment.supabaseUrl, environment.supabasePublishableKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'aph.auth' },
+  /** Solo il client di Auth: il resto di Supabase lo usa l'API, non il browser (bundle iniziale più leggero). */
+  private readonly client = new AuthClient({
+    url: `${environment.supabaseUrl}/auth/v1`,
+    headers: { apikey: environment.supabasePublishableKey, Authorization: `Bearer ${environment.supabasePublishableKey}` },
+    persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'aph.auth',
   });
   private readonly state = signal<Session | null>(null);
   private ready: Promise<void> | null = null;
@@ -48,9 +51,9 @@ export class Auth {
   /** Ripristina la sessione salvata e segue i rinnovi del token (una volta sola, all'avvio). */
   init(): Promise<void> {
     this.ready ??= (async () => {
-      const { data } = await this.client.auth.getSession();
+      const { data } = await this.client.getSession();
       this.apply(data.session);
-      this.client.auth.onAuthStateChange((_event, session) => this.apply(session));
+      this.client.onAuthStateChange((_event, session) => this.apply(session));
     })();
     return this.ready;
   }
@@ -61,7 +64,7 @@ export class Auth {
   }
 
   async login(email: string, password: string): Promise<{ ok: true } | { ok: false; message: string }> {
-    const { data, error } = await this.client.auth.signInWithPassword({ email, password });
+    const { data, error } = await this.client.signInWithPassword({ email, password });
     if (error) return { ok: false, message: authMessage(error) };
     this.apply(data.session);
     return { ok: true };
@@ -71,7 +74,7 @@ export class Auth {
   async signUp(
     email: string, password: string, firstName: string, lastName: string,
   ): Promise<{ ok: true; needsConfirmation: boolean } | { ok: false; message: string }> {
-    const { data, error } = await this.client.auth.signUp({
+    const { data, error } = await this.client.signUp({
       email,
       password,
       options: { data: { first_name: firstName, last_name: lastName }, emailRedirectTo: `${location.origin}/onboarding` },
@@ -82,11 +85,11 @@ export class Auth {
   }
 
   async resetPassword(email: string): Promise<void> {
-    await this.client.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/login` });
+    await this.client.resetPasswordForEmail(email, { redirectTo: `${location.origin}/login` });
   }
 
   async logout(): Promise<void> {
-    await this.client.auth.signOut();
+    await this.client.signOut();
     this.apply(null);
   }
 }

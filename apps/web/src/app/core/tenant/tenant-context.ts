@@ -1,5 +1,5 @@
 import { DOCUMENT, Injectable, computed, effect, inject, signal } from '@angular/core';
-import { Api, ApiSession } from '../api/api';
+import { Api, ApiSession, toApiError } from '../api/api';
 
 /** Branding del tenant applicato all'interfaccia (AFU FR-M0-03/04). */
 export interface Branding {
@@ -63,6 +63,49 @@ function readSlug(): string | null {
   }
 }
 
+// FR-M4-14: in cantiere l'app si apre anche senza rete, con l'ultimo contesto noto dello studio.
+const OFFLINE_ME_KEY = 'aph.offline.me';
+const OFFLINE_CTX_PREFIX = 'aph.offline.ctx.';
+
+function readCopy<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCopy(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* storage non disponibile */
+  }
+}
+
+/** Senza rete (o server irraggiungibile) si usa la copia locale; gli errori di autenticazione no. */
+async function withOfflineCopy<T>(key: string, fetch: () => Promise<T>): Promise<T> {
+  try {
+    const value = await fetch();
+    writeCopy(key, value);
+    return value;
+  } catch (e) {
+    const err = toApiError(e);
+    const copy = err.status === 0 || err.status >= 500 ? readCopy<T>(key) : null;
+    if (copy) return copy;
+    throw err;
+  }
+}
+
+function clearCopies(): void {
+  try {
+    Object.keys(localStorage).filter((k) => k === OFFLINE_ME_KEY || k.startsWith(OFFLINE_CTX_PREFIX)).forEach((k) => localStorage.removeItem(k));
+  } catch {
+    /* storage non disponibile */
+  }
+}
+
 /**
  * Studio corrente (FR-MT-03): elenco degli studi dell'utente da /me, studio scelto, ruolo,
  * piano e branding da /studio/context. Il branding si applica ai token CSS dell'interfaccia.
@@ -103,7 +146,7 @@ export class TenantContext {
   async load(force = false): Promise<Membership[]> {
     const cached = this.memberships();
     if (cached && !force) return cached;
-    const me = await this.api.get<{ tenants: Membership[] }>('/me');
+    const me = await withOfflineCopy(OFFLINE_ME_KEY, () => this.api.get<{ tenants: Membership[] }>('/me'));
     this.memberships.set(me.tenants);
     const remembered = readSlug();
     const target = me.tenants.find((t) => t.slug === remembered) ?? (me.tenants.length === 1 ? me.tenants[0] : undefined);
@@ -124,7 +167,7 @@ export class TenantContext {
   async select(slug: string): Promise<void> {
     this.session.tenantSlug.set(slug);
     this.remember(slug);
-    const ctx = await this.api.get<StudioContextInfo>('/studio/context');
+    const ctx = await withOfflineCopy(`${OFFLINE_CTX_PREFIX}${slug}`, () => this.api.get<StudioContextInfo>('/studio/context'));
     this.info.set(ctx);
     this.state.set({
       studioName: ctx.tenant.name,
@@ -135,6 +178,15 @@ export class TenantContext {
     const settings = await this.api.get<{ branding: { logos: Record<string, string | null> } }>('/studio/settings').catch(() => null);
     const logo = settings?.branding.logos['primary'] ?? null;
     if (logo) this.state.update((b) => ({ ...b, logoDataUrl: logo }));
+    this.setFavicon(settings?.branding.logos['icon'] ?? null);
+  }
+
+  /** Icona dello studio nella scheda del browser (FR-M0-03); senza icona resta quella del prodotto. */
+  private setFavicon(url: string | null): void {
+    const link = this.document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    link.dataset['default'] ??= link.href;
+    link.href = url ?? link.dataset['default'];
   }
 
   /** Anteprima locale (es. mentre si modifica il branding); il salvataggio passa dalle API delle impostazioni. */
@@ -148,6 +200,7 @@ export class TenantContext {
     this.clear();
     try {
       localStorage.removeItem(SLUG_KEY);
+      clearCopies();
     } catch {
       /* ignore */
     }
@@ -165,5 +218,6 @@ export class TenantContext {
     this.info.set(null);
     this.session.tenantSlug.set(null);
     this.state.set(DEFAULT_BRANDING);
+    this.setFavicon(null);
   }
 }

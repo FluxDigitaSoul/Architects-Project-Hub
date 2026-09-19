@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { AuthGuard, type AuthUser, CurrentUser } from '../auth/auth';
@@ -116,5 +116,27 @@ export class DocumentsController {
   @Get(':documentId/deliveries')
   deliveries(@CurrentUser() u: AuthUser, @CurrentTenant() t: TenantContext, @Param('projectId') p: string, @Param('documentId') d: string) {
     return this.studio.run(u, t, (tx, s) => this.documents.deliveries(tx, s, p, d));
+  }
+}
+
+const studioListSchema = z.object({
+  type: z.enum(['SITE_REPORT', 'RAI_REPORT', 'RAI_CHECK', 'APPROVAL_SUMMARY', 'PIN_EXPORT', 'UPLOAD']).optional(),
+  status: z.enum(['DRAFT', 'FINAL', 'SIGNED', 'CANCELLED']).optional(),
+  q: z.string().trim().max(100).optional(),
+});
+
+/** Archivio documentale dello studio su tutte le commesse visibili (FR-M5-06). */
+@Controller('studio/documents')
+@UseGuards(AuthGuard, TenantGuard)
+export class StudioDocumentsController {
+  constructor(
+    private readonly studio: StudioDb,
+    private readonly documents: DocumentsService,
+  ) {}
+
+  @Get()
+  list(@CurrentUser() u: AuthUser, @CurrentTenant() t: TenantContext, @Query() query: unknown) {
+    const filter = parseBody(studioListSchema, query);
+    return this.studio.run(u, t, (tx, s) => this.documents.listStudio(tx, s, filter));
   }
 }
