@@ -22,6 +22,14 @@ export const envSchema = z.object({
   SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
   STORAGE_BUCKET: z.string().default('project-files'),
+  /** URL pubblico dell'interfaccia: base dei link nelle email (portale, documenti). */
+  APP_BASE_URL: z.string().url().default('http://localhost:4200'),
+  MAIL_PROVIDER: z.enum(['log', 'resend']).default('log'),
+  RESEND_API_KEY: z.string().optional(),
+  MAIL_FROM: z.string().email().default('notifiche@example.com'),
+}).refine((env) => env.MAIL_PROVIDER !== 'resend' || Boolean(env.RESEND_API_KEY), {
+  message: 'RESEND_API_KEY è obbligatoria con MAIL_PROVIDER=resend',
+  path: ['RESEND_API_KEY'],
 });
 
 export type Env = z.infer<typeof envSchema>;

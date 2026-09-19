@@ -23,20 +23,20 @@ Piano operativo che traduce l'AFU ([docs/afu](../afu/README.md)) in step di svil
 | **A6** | Autenticazione: verifica JWT Supabase (JWKS), risoluzione del tenant dall'host, guard di membership e ruolo (RBAC/ABAC)                                                                                                                                          | FR-MT-01..03, cap. 2                                 | ✅ (JWKS ES256, tenant da sottodominio o header `X-Tenant-Slug`, 404 per chi non è membro) |
 | **A7** | Modulo `entitlements` (servizio + guard), contatori di consumo                                                                                                                                                                                                   | FR-M6-05/09, BR-28/29                                | ✅ servizio (`EntitlementsService`); contatori di consumo con B1 |
 | **A8** | Onboarding: `POST /onboarding/tenants` (provisioning), `GET /public/tenant-context` (branding per host), accettazione dei termini                                                                                                                                | FR-M6-02/17, FR-M0-02..06, NFR-BRAND-03              | ✅ onboarding, `/me`, contesto pubblico; registrazione accettazione termini da completare |
-| **A9** | Audit log applicativo (interceptor + servizio), console Platform Admin (API): tenant, piani, override, trial                                                                                                                                                     | FR-MT-07/15, FR-M6-14                                | ⬜                 |
+| **A9** | Audit log applicativo (interceptor + servizio), console Platform Admin (API): tenant, piani, override, trial                                                                                                                                                     | FR-MT-07/15, FR-M6-14                                | 🟡 audit applicativo fatto (AuditService, log di congelamento); console Platform Admin da fare |
 
 ## Fase B — Dominio della commessa
 
 | Step | Contenuto                                                                                 | Requisiti AFU                 | Stato                      |
 | ---- | ----------------------------------------------------------------------------------------- | ----------------------------- | -------------------------- |
-| B1   | Commesse, team, imprese; stati; limiti di piano                                           | FR-M1-01..03, BR-17           | ⬜                         |
-| B2   | Committenti, Magic Link (token hash), sessioni del portale, OTP, revoca                   | FR-M1-05/06, BR-03            | ⬜                         |
-| B3   | Storage file: upload diretto S3 con URL firmati, quarantena, antimalware                  | FR-M2-01, NFR-SEC-03/04/08    | ⏸️ account AWS             |
-| B4   | Elaborati, versioni, pagine, pin, commenti, sign-off, richieste di modifica               | FR-M2-*, BR-01/10/11/14/18/20 | ⬜                         |
-| B5   | R.A.I. persistente: fabbricati, unità, vani, aperture, abaco, profili normativi, snapshot | FR-M3-*, BR-06/21             | ⬜                         |
-| B6   | Sopralluoghi, foto, audio, API di sincronizzazione offline idempotente                    | FR-M4-*, BR-16/23/24          | ⬜                         |
-| B7   | Worker: code, trascrizione e strutturazione AI                                            | FR-M4-09/10, BR-05            | ⏸️ scelta fornitori (Q-22) |
-| B8   | Worker: generazione PDF (verbale, relazione, approvazione)                                | FR-M5-*, NFR-PERF-01          | ⬜                         |
+| B1   | Commesse, team, imprese; stati; limiti di piano                                           | FR-M1-01..03, BR-17           | ✅ migrazione 0600 + API commesse, team (BR-17), imprese, stati, codice progressivo, dashboard |
+| B2   | Committenti, Magic Link (token hash), sessioni del portale, OTP, revoca                   | FR-M1-05/06, BR-03            | ✅ Magic Link (hash), sessioni cookie, OTP, revoca, richiesta link self-service |
+| B3   | Storage file: upload diretto S3 con URL firmati, quarantena, antimalware                  | FR-M2-01, NFR-SEC-03/04/08    | ✅ su Supabase Storage (URL firmati, tipo reale, contenuti attivi) — S3 e antimalware da fare |
+| B4   | Elaborati, versioni, pagine, pin, commenti, sign-off, richieste di modifica               | FR-M2-*, BR-01/10/11/14/18/20 | ✅ migrazione 0700 + API e portale; trigger per BR-01/18; test e2e verdi |
+| B5   | R.A.I. persistente: fabbricati, unità, vani, aperture, abaco, profili normativi, snapshot | FR-M3-*, BR-06/21             | ✅ migrazione 0800/0850 + calcolo lato server con @aph/rai-engine, snapshot immutabili |
+| B6   | Sopralluoghi, foto, audio, API di sincronizzazione offline idempotente                    | FR-M4-*, BR-16/23/24          | ✅ migrazione 0900 + API; idempotenza X-Client-Op-Id (BR-24); finalizzazione BR-05/08/23 |
+| B7   | Worker: code, trascrizione e strutturazione AI                                            | FR-M4-09/10, BR-05            | ⏸️ scelta fornitori (Q-22): tabelle e stati pronti |
+| B8   | Worker: generazione PDF (verbale, relazione, approvazione)                                | FR-M5-*, NFR-PERF-01          | ✅ PDF sincroni (verbale, relazione R.A.I., riepilogo approvazione), firma PAdES, invio email |
 
 ## Fase C — Frontend (Angular 20/21)
 

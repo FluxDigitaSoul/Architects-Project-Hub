@@ -29,6 +29,13 @@ export const ERROR_HTTP_STATUS = {
   FEATURE_NOT_IN_PLAN: 403, // BR-28
   TENANT_READ_ONLY: 402, // BR-29 (trial scaduto / pagamento mancante)
   SLUG_UNAVAILABLE: 409, // FR-M6-02
+  CODE_UNAVAILABLE: 409, // FR-M1-01 (codice commessa già in uso)
+  INVALID_TRANSITION: 409, // macchine a stati (cap. 4.7)
+  SYNC_INCOMPLETE: 422, // BR-23
+  OTP_INVALID: 422, // FR-M2-15 (codice errato, scaduto o tentativi esauriti)
+  LINK_INVALID: 404, // FR-M1-06 (Magic Link revocato, scaduto o inesistente)
+  UNSUPPORTED_FILE: 415, // FR-M2-01, TC-SEC-05
+  SIGNATURE_MISMATCH: 422, // FR-M5-02 (PDF firmato diverso dal generato)
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_HTTP_STATUS;

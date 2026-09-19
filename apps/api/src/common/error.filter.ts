@@ -1,6 +1,7 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { ERROR_HTTP_STATUS, type ErrorBody, type ErrorCode } from '@aph/contracts';
 import type { Request, Response } from 'express';
+import { translatePgError } from '../database/pg-errors';
 import { AppError } from './app-error';
 
 const HTTP_TO_CODE: Record<number, ErrorCode> = {
@@ -30,10 +31,11 @@ export class ErrorFilter implements ExceptionFilter {
     let message = 'Si è verificato un errore imprevisto. Riprova o contatta il supporto indicando il codice.';
     let details: Record<string, unknown> | undefined;
 
-    if (exception instanceof AppError) {
-      code = exception.code;
-      message = exception.message;
-      details = exception.details;
+    const translated = exception instanceof AppError ? exception : translatePgError(exception);
+    if (translated) {
+      code = translated.code;
+      message = translated.message;
+      details = translated.details;
     } else if (exception instanceof HttpException) {
       const status = exception.getStatus();
       code = HTTP_TO_CODE[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : 'VALIDATION_FAILED');

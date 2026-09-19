@@ -1,115 +1,128 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { ProjectsStore } from '../../core/data/projects-store';
+import { toApiError } from '../../core/api/api';
+import { ProjectsApi } from '../../core/api/projects-api';
 import { Dialog } from '../../shared/ui/dialog';
 import { Toaster } from '../../shared/ui/toast';
 import { val } from '../../shared/dom';
+import { ContactForm, type ContactDraft, draftToInput, emptyContact, isContactValid } from './contact-form';
+import { type ProjectDraft, ProjectFieldsForm, draftToFields, emptyProject, isProjectValid } from './project-fields-form';
 
-const INTERVENTIONS = [
-  'Ristrutturazione edilizia',
-  'Manutenzione straordinaria',
-  'Nuova costruzione',
-  'Restauro e risanamento conservativo',
-  'Cambio di destinazione d’uso',
-  'Frazionamento / accorpamento',
-  'Recupero sottotetto',
-  'Interior design',
-  'Altro',
-];
-
-/** Creazione della commessa con il primo committente (AFU FR-M1-01, FR-M1-05). */
+/** Creazione della commessa con il primo committente e l'invio del Magic Link (AFU FR-M1-01/03/05). */
 @Component({
   selector: 'app-new-project-dialog',
-  imports: [Dialog],
+  imports: [Dialog, ContactForm, ProjectFieldsForm],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <ui-dialog [open]="open()" title="Nuova commessa" [width]="620" (closed)="closed.emit()">
-      <div class="grid g">
-        <div class="field"><label>Codice</label>
-          <input class="input mono" [class.is-invalid]="codeTaken()" [value]="code()" (input)="code.set(val($event))" />
-          @if (codeTaken()) { <span class="hint" style="color:var(--danger)">Codice già in uso</span> }
-        </div>
-        <div class="field span2"><label>Titolo</label><input class="input" placeholder="Es. Ristrutturazione appartamento Via Verdi 12" [value]="title()" (input)="title.set(val($event))" /></div>
+    <ui-dialog [open]="open()" title="Nuova commessa" [width]="680" (closed)="closed.emit()">
+      <div class="field code"><label for="np-code">Codice</label>
+        <input id="np-code" class="input mono" [class.is-invalid]="codeError()" [value]="code()" (input)="onCode(val($event))" />
+        <span class="hint" [class.is-error]="codeError()">{{ codeError() ?? 'Proposto secondo lo schema dello studio; puoi modificarlo.' }}</span>
       </div>
-      <div class="grid g">
-        <div class="field span2"><label>Indirizzo del cantiere</label><input class="input" [value]="address()" (input)="address.set(val($event))" /></div>
-        <div class="field"><label>Comune</label><input class="input" [value]="municipality()" (input)="municipality.set(val($event))" /></div>
-      </div>
-      <div class="field"><label>Tipologia di intervento</label>
-        <select class="select" (change)="intervention.set(val($event))">
-          @for (i of interventions; track i) { <option [selected]="i === intervention()">{{ i }}</option> }
-        </select>
-      </div>
+      <app-project-fields-form [(value)]="project" [touched]="touched()" />
+
       <div class="divider"></div>
       <div class="eyebrow">Committente</div>
-      <div class="grid grid-2">
-        <div class="field"><label>Nome e cognome / ragione sociale</label><input class="input" [value]="clientName()" (input)="clientName.set(val($event))" /></div>
-        <div class="field"><label>Email</label><input class="input" type="email" [class.is-invalid]="clientEmail() && !emailValid()" [value]="clientEmail()" (input)="clientEmail.set(val($event))" /></div>
-      </div>
-      <p class="muted small">Il committente riceverà un link personale al portale, senza password. Potrai revocarlo in qualsiasi momento.</p>
+      <app-contact-form [(value)]="contact" [touched]="touched()" prefix="np-contact" />
+      <label class="check"><input type="checkbox" [checked]="sendInvite()" [disabled]="!contact().portalEnabled" (change)="sendInvite.set($any($event.target).checked)" />
+        <span>Invia subito al committente l'email con il link al portale</span></label>
+
+      @if (error(); as e) { <div class="alert" role="alert">{{ e }}</div> }
+
       <div dialog-actions>
-        <button class="btn btn-outline" (click)="closed.emit()">Annulla</button>
-        <button class="btn btn-primary" [disabled]="!valid()" (click)="submit()">Crea commessa</button>
+        <button class="btn btn-outline" type="button" (click)="closed.emit()">Annulla</button>
+        <button class="btn btn-primary" type="button" [disabled]="busy()" (click)="submit()">
+          @if (busy()) { Creazione… } @else { Crea commessa }
+        </button>
       </div>
     </ui-dialog>
   `,
   styles: `
-    .g { grid-template-columns: 1fr 2fr; }
-    .span2 { grid-column: span 1; }
-    @media (max-width: 640px) { .g { grid-template-columns: 1fr; } }
+    .code { max-width: 220px; margin-bottom: 12px; }
+    .hint.is-error { color: var(--danger); }
+    .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; margin-top: 12px; }
+    .check input { margin-top: 3px; }
+    .alert { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); font-size: 13.5px; }
   `,
 })
 export class NewProjectDialog {
   readonly open = input(false);
   readonly closed = output<void>();
-  private readonly store = inject(ProjectsStore);
+  private readonly api = inject(ProjectsApi);
   private readonly router = inject(Router);
   private readonly toaster = inject(Toaster);
   protected readonly val = val;
-  protected readonly interventions = INTERVENTIONS;
 
   protected readonly code = signal('');
-  protected readonly title = signal('');
-  protected readonly address = signal('');
-  protected readonly municipality = signal('');
-  protected readonly intervention = signal(INTERVENTIONS[0] as string);
-  protected readonly clientName = signal('');
-  protected readonly clientEmail = signal('');
+  protected readonly codeTaken = signal(false);
+  protected readonly project = signal<ProjectDraft>(emptyProject());
+  protected readonly contact = signal<ContactDraft>(emptyContact());
+  protected readonly sendInvite = signal(true);
+  protected readonly touched = signal(false);
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
 
-  protected readonly codeTaken = computed(() => this.store.isCodeTaken(this.code()));
-  protected readonly emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.clientEmail().trim()));
-  protected readonly valid = computed(
-    () =>
-      this.code().trim().length > 0 &&
-      !this.codeTaken() &&
-      this.title().trim().length > 2 &&
-      this.address().trim().length > 2 &&
-      this.municipality().trim().length > 1 &&
-      this.clientName().trim().length > 1 &&
-      this.emailValid(),
+  protected readonly codeError = computed(() => {
+    if (this.codeTaken()) return 'Codice già in uso: scegline un altro.';
+    return this.touched() && !this.code().trim() ? 'Indica un codice.' : null;
+  });
+  private readonly valid = computed(
+    () => !!this.code().trim() && !this.codeTaken() && isProjectValid(this.project()) && isContactValid(this.contact()),
   );
 
   constructor() {
     effect(() => {
-      if (!this.open()) return;
-      this.code.set(this.store.nextCode());
-      for (const s of [this.title, this.address, this.municipality, this.clientName, this.clientEmail]) s.set('');
+      if (this.open()) void this.reset();
     });
   }
 
-  protected submit(): void {
-    if (!this.valid()) return;
-    const project = this.store.create({
-      code: this.code(),
-      title: this.title(),
-      address: this.address(),
-      municipality: this.municipality(),
-      interventionType: this.intervention(),
-      clientName: this.clientName(),
-      clientEmail: this.clientEmail(),
-    });
-    this.closed.emit();
-    this.toaster.show(`Commessa ${project.code} creata`);
-    void this.router.navigate(['/commesse', project.id]);
+  protected onCode(value: string): void {
+    this.code.set(value);
+    this.codeTaken.set(false);
+  }
+
+  protected async submit(): Promise<void> {
+    this.touched.set(true);
+    this.error.set(null);
+    if (!this.valid() || this.busy()) {
+      if (!this.valid()) this.error.set('Controlla i campi evidenziati.');
+      return;
+    }
+    this.busy.set(true);
+    const contact = draftToInput(this.contact());
+    try {
+      const created = await this.api.create({
+        ...draftToFields(this.project()),
+        code: this.code().trim(),
+        contacts: [contact],
+        sendInvites: this.sendInvite() && contact.portalEnabled !== false,
+      });
+      this.closed.emit();
+      this.toaster.show(
+        created.invitesSent ? `Commessa ${created.code} creata e link inviato a ${contact.email}` : `Commessa ${created.code} creata`,
+      );
+      await this.router.navigate(['/commesse', created.id]);
+    } catch (e) {
+      const err = toApiError(e);
+      if (err.code === 'CODE_UNAVAILABLE') this.codeTaken.set(true);
+      else this.error.set(err.userMessage);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private async reset(): Promise<void> {
+    this.project.set(emptyProject());
+    this.contact.set(emptyContact());
+    this.sendInvite.set(true);
+    this.touched.set(false);
+    this.error.set(null);
+    this.codeTaken.set(false);
+    this.code.set('');
+    try {
+      this.code.set((await this.api.nextCode()).code);
+    } catch {
+      /* il codice si può inserire a mano */
+    }
   }
 }

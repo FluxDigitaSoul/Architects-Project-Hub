@@ -1,132 +1,187 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { ProjectsStore } from '../../core/data/projects-store';
-import { fmtDate, fmtRelative } from '../../core/data/format';
-import { DRAWING_STATUS_LABEL, PROJECT_STATUS_LABEL, VISIT_STATUS_LABEL } from '../../core/models';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, resource } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import { toApiError } from '../../core/api/api';
+import {
+  INTERVENTION_LABEL,
+  PERMIT_LABEL,
+  PROJECT_STATUS_LABEL,
+  ProjectsApi,
+  TRANSITIONS,
+  type TransitionAction,
+} from '../../core/api/projects-api';
+import { TenantContext } from '../../core/tenant/tenant-context';
+import { Confirmer } from '../../shared/ui/confirm';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { Icon } from '../../shared/ui/icon';
-import { OutcomeBadge, OUTCOME_LABEL } from '../../shared/ui/outcome-badge';
-import { MagicLinkDialog } from './magic-link-dialog';
+import { Toaster } from '../../shared/ui/toast';
+import { ProjectContacts } from './project-contacts';
+import { ProjectData } from './project-data';
+import { ProjectOverview } from './project-overview';
+import { ProjectTeam } from './project-team';
 
-type Tab = 'overview' | 'drawings' | 'visits';
+type Tab = 'panoramica' | 'committenti' | 'team' | 'dati';
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'panoramica', label: 'Panoramica' },
+  { key: 'committenti', label: 'Committenti' },
+  { key: 'team', label: 'Team e imprese' },
+  { key: 'dati', label: 'Dati' },
+];
 
-/** Fascicolo di commessa (AFU FR-M1-04): dashboard, elaborati, sopralluoghi. */
+/** Fascicolo della commessa (AFU FR-M1-04): dashboard, committenti, team, dati e stato. */
 @Component({
   selector: 'app-project-detail',
-  imports: [RouterLink, Icon, OutcomeBadge, EmptyState, MagicLinkDialog],
+  imports: [RouterLink, EmptyState, Icon, ProjectContacts, ProjectData, ProjectOverview, ProjectTeam],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'page' },
   template: `
-    @if (project(); as p) {
-      <a routerLink="/commesse" class="back muted small"><ui-icon name="chevron-left" [size]="14" /> Commesse</a>
+    <a routerLink="/commesse" class="back muted small"><ui-icon name="chevron-left" [size]="14" /> Commesse</a>
+    @if (detail.error()) {
+      <div class="card"><ui-empty icon="folder" [title]="notFound() ? 'Commessa non trovata' : 'Impossibile aprire la commessa'" [text]="errorText()">
+        @if (!notFound()) { <button class="btn btn-outline btn-sm" (click)="reload()">Riprova</button> }
+      </ui-empty></div>
+    } @else if (detail.value(); as p) {
       <div class="head">
-        <div>
-          <div class="row" style="gap:8px"><span class="eyebrow">{{ p.code }}</span><span class="badge" [class.badge-success]="p.status === 'ACTIVE'">{{ statusLabel[p.status] }}</span></div>
-          <h1 style="margin-top:4px">{{ p.title }}</h1>
-          <div class="muted row" style="gap:14px;margin-top:4px;flex-wrap:wrap">
-            <span class="row" style="gap:5px"><ui-icon name="map-pin" [size]="14" /> {{ p.address }}</span>
-            <span class="row" style="gap:5px"><ui-icon name="users" [size]="14" /> {{ p.clientName }}</span>
-            <span class="row" style="gap:5px"><ui-icon name="building" [size]="14" /> {{ p.interventionType }}</span>
+        <div class="head-text">
+          <div class="row" style="gap:8px">
+            <span class="eyebrow">{{ p.code }}</span>
+            <span class="badge" [class.badge-success]="p.status === 'ACTIVE'" [class.badge-warning]="p.status === 'SUSPENDED'" [class.badge-plain]="p.status === 'ARCHIVED'">{{ statusLabel[p.status] }}</span>
+            @if (p.permitType) { <span class="badge badge-plain">{{ permitLabel[p.permitType] }}</span> }
+          </div>
+          <h1>{{ p.title }}</h1>
+          <div class="muted meta">
+            <span><ui-icon name="map-pin" [size]="14" /> {{ p.address }}</span>
+            <span><ui-icon name="users" [size]="14" /> {{ clients() }}</span>
+            <span><ui-icon name="building" [size]="14" /> {{ interventionLabel[p.interventionType] }}</span>
           </div>
         </div>
-        <div class="row">
-          <button class="btn btn-outline" (click)="linksOpen.set(true)"><ui-icon name="users" [size]="15" /> Accesso committenti</button>
-          <button class="btn btn-primary"><ui-icon name="upload" [size]="15" /> Carica tavola</button>
+        <div class="row actions">
+          <a class="btn btn-outline" [routerLink]="['/commesse', p.id, 'rai']"><ui-icon name="ruler" [size]="15" /> R.A.I.</a>
+          @if (tenant.canManage()) {
+            @for (t of transitions(); track t.action) {
+              <button class="btn btn-ghost" (click)="transition(t.action, t.label, t.confirm)">{{ t.label }}</button>
+            }
+          }
         </div>
       </div>
+      @if (p.status !== 'ACTIVE') {
+        <div class="notice small"><ui-icon name="info" [size]="15" />
+          @switch (p.status) {
+            @case ('SUSPENDED') { Commessa sospesa: consultabile, ma non si pubblicano tavole né si creano sopralluoghi. }
+            @case ('CLOSED') { Commessa chiusa: i committenti mantengono l'accesso per il periodo di tolleranza. }
+            @case ('ARCHIVED') { Commessa archiviata: sola lettura. }
+          }
+        </div>
+      }
 
-      <nav class="tabs">
-        <button [class.is-active]="tab() === 'overview'" (click)="tab.set('overview')">Panoramica</button>
-        <button [class.is-active]="tab() === 'drawings'" (click)="tab.set('drawings')">Elaborati <span class="cnt">{{ drawings().length }}</span></button>
-        <button [class.is-active]="tab() === 'visits'" (click)="tab.set('visits')">Sopralluoghi <span class="cnt">{{ visits().length }}</span></button>
+      <nav class="tabs" role="tablist">
+        @for (t of tabs; track t.key) {
+          <button role="tab" [attr.aria-selected]="tab() === t.key" [class.is-active]="tab() === t.key" (click)="setTab(t.key)">
+            {{ t.label }} @if (t.key === 'committenti') { <span class="cnt">{{ p.contacts.length }}</span> }
+          </button>
+        }
       </nav>
 
       @switch (tab()) {
-        @case ('overview') {
-          <div class="grid grid-4">
-            <div class="card w"><div class="eyebrow">Approvazioni</div><div class="big mono">{{ s().drawingsPending }}</div><div class="muted small">tavole in attesa del committente</div></div>
-            <div class="card w"><div class="eyebrow">Osservazioni</div><div class="big mono" [class.warn]="s().pinsOpen > 0">{{ s().pinsOpen }}</div><div class="muted small">pin aperti da gestire</div></div>
-            <a class="card w link" [routerLink]="['/commesse', p.id, 'rai']">
-              <div class="row-between"><span class="eyebrow">Conformità R.A.I.</span><ui-icon name="arrow-right" [size]="15" class="muted" /></div>
-              <div style="margin:8px 0"><ui-outcome [outcome]="s().raiOutcome" /></div>
-              <div class="muted small">{{ raiHint() }}</div>
-            </a>
-            <div class="card w"><div class="eyebrow">Cantiere</div><div class="big mono">{{ s().visits }}</div><div class="muted small">sopralluoghi · {{ s().reportsDraft }} verbali da finalizzare</div></div>
-          </div>
+        @case ('panoramica') {
+          @if (dashboard.value(); as d) { <app-project-overview [data]="d" (goto)="goto($event)" /> }
+          @else if (dashboard.error()) { <div class="card error-box">{{ dashboardError() }} <button class="btn btn-outline btn-sm" (click)="dashboard.reload()">Riprova</button></div> }
+          @else { <div class="card skeleton"></div> }
         }
-        @case ('drawings') {
-          <div class="card">
-            @if (drawings().length) {
-              <table class="table">
-                <thead><tr><th>Tavola</th><th>Categoria</th><th>Versione</th><th>Stato</th><th class="num">Pin</th><th>Aggiornata</th></tr></thead>
-                <tbody>
-                  @for (d of drawings(); track d.id) {
-                    <tr class="is-link" [routerLink]="['tavole', d.id]">
-                      <td><b class="mono">{{ d.code }}</b> · {{ d.title }}</td><td>{{ d.category }}</td><td class="mono">v{{ d.version }}</td>
-                      <td><span class="badge" [class.badge-success]="d.status === 'APPROVED'" [class.badge-info]="d.status === 'PUBLISHED'" [class.badge-plain]="d.status === 'DRAFT'">{{ drawingLabel[d.status] }}</span></td>
-                      <td class="num">@if (d.pinsOpen) { <b style="color:var(--warning)">{{ d.pinsOpen }}</b> aperti / } {{ d.pinsTotal }}</td>
-                      <td class="muted">{{ rel(d.updatedAt) }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            } @else { <ui-empty icon="file" title="Nessun elaborato" text="Carica la prima tavola per iniziare la revisione con il committente." /> }
-          </div>
+        @case ('committenti') {
+          <app-project-contacts [projectId]="p.id" [contacts]="p.contacts" [canManage]="canEdit()" (changed)="reload()" />
         }
-        @case ('visits') {
-          <div class="card">
-            @if (visits().length) {
-              <table class="table">
-                <thead><tr><th>Verbale</th><th>Data</th><th>Stato</th><th class="num">Foto</th><th class="num">Difformità aperte</th></tr></thead>
-                <tbody>
-                  @for (v of visits(); track v.id) {
-                    <tr class="is-link">
-                      <td><b>Sopralluogo n. {{ v.number }}</b></td><td>{{ date(v.date) }}</td>
-                      <td><span class="badge" [class.badge-success]="v.status === 'SENT'" [class.badge-warning]="v.status === 'REVIEW'" [class.badge-plain]="v.status === 'DRAFT'">{{ visitLabel[v.status] }}</span></td>
-                      <td class="num">{{ v.photos }}</td><td class="num">@if (v.issuesOpen) { <b style="color:var(--danger)">{{ v.issuesOpen }}</b> } @else { <span class="muted">0</span> }</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            } @else { <ui-empty icon="hardhat" title="Nessun sopralluogo" text="I sopralluoghi si creano dal telefono, anche offline." /> }
-          </div>
+        @case ('team') {
+          <app-project-team [projectId]="p.id" [team]="p.team" [contractors]="p.contractors" [canManage]="canEdit()" (changed)="reload()" />
+        }
+        @case ('dati') {
+          <app-project-data [project]="p" [canManage]="canEdit()" (changed)="reload()" />
         }
       }
-      <app-magic-link-dialog [open]="linksOpen()" [projectId]="p.id" (closed)="linksOpen.set(false)" />
     } @else {
-      <div class="card"><ui-empty icon="folder" title="Commessa non trovata" /></div>
+      <div class="card skeleton"></div>
     }
   `,
   styles: `
     .back { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 10px; }
-    .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 18px; }
-    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
-    .tabs button { background: none; border: 0; padding: 10px 12px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; gap: 6px; align-items: center; }
+    .head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
+    .head h1 { margin-top: 4px; }
+    .meta { display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
+    .meta span { display: inline-flex; gap: 5px; align-items: center; }
+    .actions { gap: 6px; flex-wrap: wrap; }
+    .notice { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 8px; background: var(--warning-soft); color: var(--ink-2); margin-bottom: 14px; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; overflow-x: auto; }
+    .tabs button { background: none; border: 0; padding: 10px 12px; font: inherit; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
     .tabs button.is-active { color: var(--ink); border-color: var(--color-primary); }
     .cnt { font-size: 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
-    .w { padding: 16px 18px; display: flex; flex-direction: column; gap: 2px; }
-    .w.link:hover { box-shadow: var(--shadow-md); }
-    .big { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 4px 0; }
-    .big.warn { color: var(--warning); }
+    .skeleton { height: 220px; background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); }
+    .error-box { padding: 20px; display: flex; gap: 12px; align-items: center; justify-content: space-between; }
   `,
 })
 export class ProjectDetail {
   readonly id = input.required<string>();
-  private readonly store = inject(ProjectsStore);
-  protected readonly tab = signal<Tab>('overview');
-  protected readonly linksOpen = signal(false);
-  protected readonly statusLabel = PROJECT_STATUS_LABEL;
-  protected readonly drawingLabel = DRAWING_STATUS_LABEL;
-  protected readonly visitLabel = VISIT_STATUS_LABEL;
-  protected readonly rel = fmtRelative;
-  protected readonly date = fmtDate;
+  /** Scheda aperta, da `?scheda=` (il link si può condividere e il tasto Indietro funziona). */
+  readonly scheda = input<string>();
 
-  protected readonly project = computed(() => this.store.projects().find((p) => p.id === this.id()) ?? null);
-  protected readonly drawings = computed(() => this.store.drawingsOf(this.id())());
-  protected readonly visits = computed(() => this.store.visitsOf(this.id())());
-  protected readonly s = computed(() => this.store.stats(this.id())());
-  protected readonly raiHint = computed(() => {
-    const o = this.s().raiOutcome;
-    return o === 'NONE' ? 'Inserisci vani e aperture' : OUTCOME_LABEL[o] + ' · apri il calcolo';
+  private readonly api = inject(ProjectsApi);
+  private readonly router = inject(Router);
+  private readonly toaster = inject(Toaster);
+  private readonly confirmer = inject(Confirmer);
+  protected readonly tenant = inject(TenantContext);
+  protected readonly tabs = TABS;
+  protected readonly statusLabel = PROJECT_STATUS_LABEL;
+  protected readonly permitLabel = PERMIT_LABEL;
+  protected readonly interventionLabel = INTERVENTION_LABEL;
+
+  protected readonly detail = resource({ params: () => this.id(), loader: ({ params }) => this.api.detail(params) });
+  protected readonly dashboard = resource({ params: () => this.id(), loader: ({ params }) => this.api.dashboard(params) });
+
+  protected readonly tab = linkedSignal<Tab>(() => {
+    const s = this.scheda();
+    return TABS.some((t) => t.key === s) ? (s as Tab) : 'panoramica';
   });
+
+  protected readonly notFound = computed(() => toApiError(this.detail.error()).code === 'NOT_FOUND');
+  protected readonly errorText = computed(() =>
+    this.notFound() ? 'Non esiste o non hai i permessi per vederla.' : toApiError(this.detail.error()).userMessage,
+  );
+  protected readonly dashboardError = computed(() => toApiError(this.dashboard.error()).userMessage);
+  protected readonly clients = computed(() => this.detail.value()?.contacts.map((c) => c.displayName).join(', ') || 'Nessun committente');
+  protected readonly transitions = computed(() => {
+    const p = this.detail.value();
+    return p ? TRANSITIONS[p.status] : [];
+  });
+  /** Le commesse archiviate sono in sola lettura. */
+  protected readonly canEdit = computed(() => this.tenant.canManage() && this.detail.value()?.status !== 'ARCHIVED');
+
+  protected setTab(t: Tab): void {
+    this.tab.set(t);
+    void this.router.navigate([], { queryParams: { scheda: t === 'panoramica' ? null : t }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  protected goto(target: string): void {
+    if (TABS.some((t) => t.key === target)) this.setTab(target as Tab);
+  }
+
+  protected reload(): void {
+    this.detail.reload();
+    this.dashboard.reload();
+  }
+
+  protected async transition(action: TransitionAction, label: string, text: string): Promise<void> {
+    const result = await this.confirmer.ask({
+      title: `${label} la commessa?`,
+      text,
+      confirmLabel: label,
+      tone: action === 'ARCHIVE' || action === 'CLOSE' ? 'danger' : 'primary',
+      checkbox: action === 'CLOSE' ? { label: 'Revoca subito i link dei committenti' } : undefined,
+    });
+    if (!result) return;
+    try {
+      await this.api.transition(this.id(), action, result.checked);
+      this.toaster.show('Stato della commessa aggiornato');
+      this.reload();
+    } catch (e) {
+      this.toaster.show(toApiError(e).userMessage, 'danger');
+    }
+  }
 }

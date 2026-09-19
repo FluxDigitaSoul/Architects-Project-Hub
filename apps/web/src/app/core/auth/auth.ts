@@ -1,58 +1,92 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { type AuthError, type Session as SupabaseSession, type SupabaseClient, createClient } from '@supabase/supabase-js';
+import { environment } from '../../../environments/environment';
+import { ApiSession } from '../api/api';
 
-/** Sessione utente. Mock locale finché non arriva Supabase Auth (ADR-003). */
+/** Utente dello studio autenticato con Supabase Auth (ADR-003, FR-MT-01/02). */
 export interface Session {
+  userId: string;
   email: string;
   name: string;
 }
 
-const STORAGE_KEY = 'aph.session';
+/** Messaggi in italiano per gli errori più comuni di Supabase Auth. */
+function authMessage(error: AuthError): string {
+  const code = error.code ?? '';
+  if (code === 'invalid_credentials') return 'Email o password non corretti.';
+  if (code === 'email_not_confirmed') return 'Conferma prima l’indirizzo email: ti abbiamo inviato un link.';
+  if (code === 'user_already_exists') return 'Esiste già un account con questa email: accedi.';
+  if (code === 'weak_password') return 'La password è troppo debole: usa almeno 8 caratteri con lettere e numeri.';
+  if (code === 'over_request_rate_limit' || error.status === 429) return 'Troppi tentativi. Riprova tra qualche minuto.';
+  return 'Accesso non riuscito. Riprova.';
+}
+
+function toSession(s: SupabaseSession | null): Session | null {
+  if (!s?.user) return null;
+  const email = s.user.email ?? '';
+  const meta = s.user.user_metadata as { full_name?: string; first_name?: string; last_name?: string } | undefined;
+  const fromMeta = meta?.full_name ?? [meta?.first_name, meta?.last_name].filter(Boolean).join(' ');
+  const fromEmail = (email.split('@')[0] ?? 'utente').split(/[._-]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  return { userId: s.user.id, email, name: fromMeta || fromEmail };
+}
 
 @Injectable({ providedIn: 'root' })
 export class Auth {
-  private readonly state = signal<Session | null>(this.restore());
+  private readonly api = inject(ApiSession);
+  private readonly client: SupabaseClient = createClient(environment.supabaseUrl, environment.supabasePublishableKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'aph.auth' },
+  });
+  private readonly state = signal<Session | null>(null);
+  private ready: Promise<void> | null = null;
 
   readonly session = this.state.asReadonly();
   readonly isAuthenticated = computed(() => this.state() !== null);
-  readonly initials = computed(() => {
-    const name = this.state()?.name ?? '';
-    return name
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? '')
-      .join('');
-  });
+  readonly initials = computed(() =>
+    (this.state()?.name ?? '').split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join(''),
+  );
 
-  login(email: string): void {
-    const local = email.split('@')[0] ?? 'utente';
-    const name = local
-      .split(/[._-]/)
-      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-      .join(' ');
-    const session = { email, name };
-    this.state.set(session);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-    } catch {
-      /* ignore */
-    }
+  /** Ripristina la sessione salvata e segue i rinnovi del token (una volta sola, all'avvio). */
+  init(): Promise<void> {
+    this.ready ??= (async () => {
+      const { data } = await this.client.auth.getSession();
+      this.apply(data.session);
+      this.client.auth.onAuthStateChange((_event, session) => this.apply(session));
+    })();
+    return this.ready;
   }
 
-  logout(): void {
-    this.state.set(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
+  private apply(session: SupabaseSession | null): void {
+    this.api.accessToken.set(session?.access_token ?? null);
+    this.state.set(toSession(session));
   }
 
-  private restore(): Session | null {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Session) : null;
-    } catch {
-      return null;
-    }
+  async login(email: string, password: string): Promise<{ ok: true } | { ok: false; message: string }> {
+    const { data, error } = await this.client.auth.signInWithPassword({ email, password });
+    if (error) return { ok: false, message: authMessage(error) };
+    this.apply(data.session);
+    return { ok: true };
+  }
+
+  /** Registrazione self-service (FR-M6-01). Se Supabase richiede la conferma email, la sessione arriva dopo il click. */
+  async signUp(
+    email: string, password: string, firstName: string, lastName: string,
+  ): Promise<{ ok: true; needsConfirmation: boolean } | { ok: false; message: string }> {
+    const { data, error } = await this.client.auth.signUp({
+      email,
+      password,
+      options: { data: { first_name: firstName, last_name: lastName }, emailRedirectTo: `${location.origin}/onboarding` },
+    });
+    if (error) return { ok: false, message: authMessage(error) };
+    this.apply(data.session);
+    return { ok: true, needsConfirmation: !data.session };
+  }
+
+  async resetPassword(email: string): Promise<void> {
+    await this.client.auth.resetPasswordForEmail(email, { redirectTo: `${location.origin}/login` });
+  }
+
+  async logout(): Promise<void> {
+    await this.client.auth.signOut();
+    this.apply(null);
   }
 }
