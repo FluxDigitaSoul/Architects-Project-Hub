@@ -1,0 +1,18 @@
+# Contesto di build dell'immagine dell'API (apps/api/Dockerfile): solo ciò che serve.
+.git
+.github
+.claude
+**/node_modules
+**/dist
+**/coverage
+**/.angular
+**/*.log
+.env
+.env.*
+docs
+supabase
+db-tests
+Asset di FDS
+# Del frontend serve solo il manifest (npm ci verifica il lockfile di tutti i workspace).
+apps/web/*
+!apps/web/package.json

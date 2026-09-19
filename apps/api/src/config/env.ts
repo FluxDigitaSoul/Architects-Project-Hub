@@ -6,6 +6,12 @@ import { z } from 'zod';
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  /**
+   * Numero di proxy fidati davanti all'API (es. 2 = rewrite di Vercel + bilanciatore dell'hosting).
+   * Serve per leggere il vero IP del client da X-Forwarded-For: prove di approvazione, audit e
+   * limiti di tentativi. 0 = connessione diretta (sviluppo).
+   */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   PLATFORM_BASE_DOMAIN: z.string().min(1).default('localhost'),
   CORS_ORIGINS: z
     .string()
