@@ -20,6 +20,9 @@ export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn', 'log'] });
   const env = app.get<Env>(ENV);
   app.disable('x-powered-by');
+  // Dietro Vercel e il bilanciatore, req.ip sarebbe quello del proxy per tutti (IP sbagliato nelle
+  // prove di approvazione e limiti di tentativi condivisi da tutti gli utenti).
+  if (env.TRUST_PROXY > 0) app.set('trust proxy', env.TRUST_PROXY);
   app.setGlobalPrefix('api/v1');
   app.use(requestId);
   app.use(securityHeaders);

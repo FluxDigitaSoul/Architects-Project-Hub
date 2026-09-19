@@ -5,6 +5,8 @@ Project Hub white-label per studi di architettura: revisione tavole con il commi
 - Analisi funzionale: [docs/afu](docs/afu/README.md)
 - Decisioni architetturali: [docs/architecture/adr](docs/architecture/adr/README.md)
 - Roadmap di sviluppo: [docs/development/ROADMAP.md](docs/development/ROADMAP.md)
+- Deploy in produzione: [docs/deploy/DEPLOY.md](docs/deploy/DEPLOY.md)
+- Test dal vivo in locale: [docs/development/TEST-LIVE.md](docs/development/TEST-LIVE.md)
 
 ## Struttura del repository
 
